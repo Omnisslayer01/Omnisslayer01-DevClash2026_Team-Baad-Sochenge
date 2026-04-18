@@ -1,4 +1,4 @@
-<!-- templates/myapp/verify.html — client liveness (MediaPipe blink) + optional Luxand on server -->
+<!-- templates/myapp/verify.html — MediaPipe blink + head-turn liveness + optional Luxand -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,18 +16,19 @@
         button:hover { background: #004494; }
         button:disabled { background: #ccc; cursor: not-allowed; }
         #status { margin-top: 1rem; font-weight: bold; color: #333; }
-        .hint { font-size: 0.9rem; color: #555; margin-top: 0.5rem; }
+        .hint { font-size: 0.9rem; color: #555; margin-top: 0.5rem; line-height: 1.4; }
         .timer { font-size: 1.1rem; color: #c0392b; margin: 0.5rem 0; }
-        .blink-row { font-size: 1.2rem; margin: 0.75rem 0; }
+        .blink-row { font-size: 1.1rem; margin: 0.4rem 0; }
     </style>
 </head>
 <body>
 
     <div class="camera-container">
         <h2>Face verification</h2>
-        <p>Blink naturally <strong id="targetBlinksLabel">3</strong> times within <strong id="windowLabel">30</strong> seconds. Then capture for the server check.</p>
-        <p class="timer" id="timerText">Time left: 30s</p>
-        <p class="blink-row">Blinks detected: <span id="blinkCount">0</span> / <span id="targetSpan">3</span></p>
+        <p>Complete both challenges within <strong id="windowLabel">60</strong> seconds, then capture.</p>
+        <p class="timer" id="timerText">Time left: 60s</p>
+        <p class="blink-row">Blinks: <span id="blinkCount">0</span> / <span id="targetSpan">—</span></p>
+        <p class="blink-row">Head turns (left → right each): <span id="headCount">0</span> / <span id="headTargetSpan">—</span></p>
         <p class="hint" id="livenessHint">Starting camera…</p>
 
         <video id="video" autoplay playsinline></video>
@@ -41,8 +42,16 @@
     <form id="csrfForm">{% csrf_token %}</form>
 
     <script>
-        const TARGET_BLINKS = 3;
-        const TIME_LIMIT_SEC = 30;
+        const MIN_BLINKS = 2;
+        const MAX_BLINKS = 6;
+        const targetBlinks = Math.floor(Math.random() * (MAX_BLINKS - MIN_BLINKS + 1)) + MIN_BLINKS;
+
+        /** Full left→right passes required (each pass = look left, then look right). */
+        const MIN_HEAD_CYCLES = 1;
+        const MAX_HEAD_CYCLES = 3;
+        const targetHeadCycles = Math.floor(Math.random() * (MAX_HEAD_CYCLES - MIN_HEAD_CYCLES + 1)) + MIN_HEAD_CYCLES;
+
+        const TIME_LIMIT_SEC = 60;
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -51,12 +60,14 @@
         const statusText = document.getElementById('status');
         const blinkCountEl = document.getElementById('blinkCount');
         const targetSpan = document.getElementById('targetSpan');
+        const headCountEl = document.getElementById('headCount');
+        const headTargetSpan = document.getElementById('headTargetSpan');
         const timerText = document.getElementById('timerText');
         const livenessHint = document.getElementById('livenessHint');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
-        targetSpan.textContent = TARGET_BLINKS;
-        document.getElementById('targetBlinksLabel').textContent = TARGET_BLINKS;
+        targetSpan.textContent = targetBlinks;
+        headTargetSpan.textContent = targetHeadCycles;
         document.getElementById('windowLabel').textContent = TIME_LIMIT_SEC;
 
         let challengeCompleted = false;
@@ -65,6 +76,10 @@
         let isEyesClosed = false;
         let timeUp = false;
         const deadline = Date.now() + TIME_LIMIT_SEC * 1000;
+
+        /** Within one cycle: need 'left' yaw first, then 'right'. */
+        let headPhase = 'left';
+        let headCyclesCompleted = 0;
 
         function tickTimer() {
             const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
@@ -86,21 +101,47 @@
             return Math.hypot(a.x - b.x, a.y - b.y);
         }
 
-        /** Eye aspect ratio — one eye from Face Mesh landmarks */
         function eyeEAR(upper, lower, left, right) {
             const v = calculateDistance(upper, lower);
             const h = calculateDistance(left, right);
             return h > 1e-6 ? v / h : 0;
         }
 
+        /** Nose vs face edges — proxy for yaw (tune if needed on your camera). */
+        function headYawRatio(lm) {
+            const noseTip = lm[4];
+            const leftFaceEdge = lm[234];
+            const rightFaceEdge = lm[454];
+            const distToLeft = Math.abs(noseTip.x - leftFaceEdge.x);
+            const distToRight = Math.max(Math.abs(noseTip.x - rightFaceEdge.x), 1e-4);
+            return distToLeft / distToRight;
+        }
+
         function updateChallengeState() {
-            const ok = manualOverride || (blinkCount >= TARGET_BLINKS && !timeUp);
+            const blinksDone = blinkCount === targetBlinks;
+            const headDone = headCyclesCompleted === targetHeadCycles;
+            const ok = manualOverride || (blinksDone && headDone && !timeUp);
             challengeCompleted = ok;
             captureBtn.disabled = !ok;
             if (ok) {
                 livenessHint.textContent = 'Liveness OK — you can verify.';
                 livenessHint.style.color = 'green';
+                return;
             }
+            if (timeUp) return;
+            let msg = '';
+            if (!blinksDone) {
+                msg = 'Blink exactly ' + targetBlinks + ' time(s) (' + blinkCount + '/' + targetBlinks + '). ';
+            }
+            if (!headDone) {
+                if (blinksDone) msg = 'Blinks done. ';
+                msg += headPhase === 'left'
+                    ? 'Turn your head to the LEFT (then you will be asked for RIGHT). '
+                    : 'Turn your head to the RIGHT. ';
+                msg += 'Full passes: ' + headCyclesCompleted + '/' + targetHeadCycles + '.';
+            }
+            livenessHint.textContent = msg.trim();
+            livenessHint.style.color = '#333';
         }
 
         fallbackBtn.addEventListener('click', () => {
@@ -111,7 +152,6 @@
             livenessHint.style.color = '#e67e22';
         });
 
-        // --- MediaPipe Face Mesh (blink) ---
         function initMediaPipe() {
             if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
                 livenessHint.textContent = 'MediaPipe failed to load. Use demo fallback or refresh.';
@@ -129,15 +169,16 @@
             });
 
             const BLINK_THRESHOLD = 0.21;
+            const LOOK_LEFT_MAX = 0.55;
+            const LOOK_RIGHT_MIN = 1.75;
 
             faceMesh.onResults((results) => {
                 if (timeUp || challengeCompleted) return;
                 if (!results.multiFaceLandmarks || !results.multiFaceLandmarks.length) return;
 
                 const lm = results.multiFaceLandmarks[0];
-                // Right eye (subject's right): top/bottom/horizontal corners
+
                 const rEAR = eyeEAR(lm[159], lm[145], lm[33], lm[133]);
-                // Left eye
                 const lEAR = eyeEAR(lm[386], lm[374], lm[362], lm[263]);
                 const ear = (rEAR + lEAR) / 2;
 
@@ -145,10 +186,26 @@
                     isEyesClosed = true;
                 } else if (ear >= BLINK_THRESHOLD && isEyesClosed) {
                     isEyesClosed = false;
-                    blinkCount++;
-                    blinkCountEl.textContent = blinkCount;
-                    updateChallengeState();
+                    if (blinkCount < targetBlinks) {
+                        blinkCount++;
+                        blinkCountEl.textContent = blinkCount;
+                    }
                 }
+
+                if (headCyclesCompleted < targetHeadCycles) {
+                    const turnRatio = headYawRatio(lm);
+                    if (headPhase === 'left' && turnRatio < LOOK_LEFT_MAX) {
+                        headPhase = 'right';
+                    } else if (headPhase === 'right' && turnRatio > LOOK_RIGHT_MIN) {
+                        headCyclesCompleted++;
+                        headCountEl.textContent = headCyclesCompleted;
+                        if (headCyclesCompleted < targetHeadCycles) {
+                            headPhase = 'left';
+                        }
+                    }
+                }
+
+                updateChallengeState();
             });
 
             const camera = new Camera(video, {
@@ -159,7 +216,9 @@
                 height: 480
             });
             camera.start();
-            livenessHint.textContent = 'Look at the camera and blink ' + TARGET_BLINKS + ' times.';
+            livenessHint.textContent =
+                'Blink ' + targetBlinks + ' time(s), and complete ' + targetHeadCycles + ' left→right head turn(s). Order is free.';
+            updateChallengeState();
         }
 
         try {
@@ -171,7 +230,7 @@
 
         captureBtn.addEventListener('click', () => {
             if (!challengeCompleted) {
-                statusText.innerText = 'Complete the blink challenge first (or use demo fallback).';
+                statusText.innerText = 'Complete blink + head challenges first (or use demo fallback).';
                 statusText.style.color = 'red';
                 return;
             }
