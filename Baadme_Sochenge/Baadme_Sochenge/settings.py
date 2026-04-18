@@ -25,7 +25,7 @@ SECRET_KEY = "django-insecure-&j-%_y5=4j06pxq4o!w29ikiu6wl9w0eqyqx*%9@+7w82_@r4q
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -37,7 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    'myapp'
+    'myapp', 
+    'accounts'
 ]
 
 MIDDLEWARE = [
@@ -111,8 +112,18 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.0/howto/static-files/
-
 STATIC_URL = "static/"
+
+
+AUTH_USER_MODEL = 'myapp.User'
+
+# Stripe Configuration (Get these from your Stripe Dashboard -> Developers -> API Keys)
+# Use TEST keys for the hackathon (pk_test_..., sk_test_...)
+STRIPE_SECRET_KEY = '03d0e1da50a046a486eb5e08920f6e00'
+STRIPE_PUBLIC_KEY = 'pk_test_your_public_key'
+
+# Redirects
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'
+
+AUTH_USER_MODEL = 'accounts.User'
