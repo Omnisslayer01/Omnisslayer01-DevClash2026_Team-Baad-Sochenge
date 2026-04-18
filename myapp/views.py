@@ -9,6 +9,8 @@ from django.contrib.auth import get_user_model
 
 from accounts.models import Connection, Profile
 from accounts.services.trust_service import update_trust_score
+from verification.facade import run_ownership_verification
+from verification.repositories import get_company_by_cin, get_tax_by_gstin
 from .models import (
     Event,
     Registration,
@@ -25,6 +27,36 @@ User = get_user_model()
 
 PROMOTION_TRUST_THRESHOLD = 70
 EVENT_HOST_TRUST_THRESHOLD = 65
+OWNER_VERIFICATION_SAMPLES = [
+    {
+        "label": "Acme Innovations",
+        "cin": "U74999DL2019PTC346789",
+        "gstin": "07AABCU9601R1ZV",
+        "company_name": "Acme Innovations Private Limited",
+        "claimant_name": "Rajesh Kumar Sharma",
+    },
+    {
+        "label": "Heritage Textiles",
+        "cin": "L17110MH1973PLC019786",
+        "gstin": "27AAPFU0939F1ZV",
+        "company_name": "Heritage Textiles Limited",
+        "claimant_name": "Anil Kapoor",
+    },
+    {
+        "label": "Southern Grid Energy",
+        "cin": "U40109TN2020PTC131415",
+        "gstin": "33AABCS1234E1Z1",
+        "company_name": "Southern Grid Energy Private Limited",
+        "claimant_name": "Karthik Iyer",
+    },
+    {
+        "label": "Scammer Attempt",
+        "cin": "U74999DL2019PTC346789",
+        "gstin": "07AABCU9601R1ZV",
+        "company_name": "Acme Innovations Private Limited",
+        "claimant_name": "Fake Hacker Name",
+    },
+]
 
 def signup_view(request):
     if request.method == 'POST':
@@ -295,6 +327,93 @@ def promotions(request):
         "promotion_threshold": PROMOTION_TRUST_THRESHOLD,
     }
     return render(request, "myapp/promotions.html", context)
+
+
+@login_required
+def owner_verification_lab(request):
+    profile, _ = Profile.objects.get_or_create(
+        user=request.user,
+        defaults={"name": request.user.full_name or request.user.username},
+    )
+    if request.user.role != "company" or not profile.is_boss:
+        return HttpResponseForbidden("Only company boss accounts can use owner verification.")
+
+    selected_sample = request.GET.get("sample", "0")
+    try:
+        selected_index = max(0, min(int(selected_sample), len(OWNER_VERIFICATION_SAMPLES) - 1))
+    except ValueError:
+        selected_index = 0
+
+    initial = OWNER_VERIFICATION_SAMPLES[selected_index]
+    form_data = {
+        "cin": initial["cin"],
+        "gstin": initial["gstin"],
+        "company_name": initial["company_name"],
+        "claimant_name": initial["claimant_name"],
+    }
+    results = {}
+
+    if request.method == "POST":
+        form_data = {
+            "cin": request.POST.get("cin", "").strip().upper(),
+            "gstin": request.POST.get("gstin", "").strip().upper(),
+            "company_name": request.POST.get("company_name", "").strip(),
+            "claimant_name": request.POST.get("claimant_name", "").strip(),
+        }
+
+        company = get_company_by_cin(form_data["cin"]) if form_data["cin"] else None
+        tax = get_tax_by_gstin(form_data["gstin"]) if form_data["gstin"] else None
+        ownership = run_ownership_verification(
+            cin=form_data["cin"],
+            gstin=form_data["gstin"],
+            company_name=form_data["company_name"],
+            claimant_name=form_data["claimant_name"],
+            claimant_id=str(request.user.id),
+            apply_realism=False,
+        )
+
+        should_upgrade_company_verification = (
+            ownership.get("success")
+            and ownership.get("decision") == "Verified"
+            and int(ownership.get("trust_score") or 0) >= 80
+            and bool(company)
+            and bool(tax)
+        )
+        if should_upgrade_company_verification and not profile.is_company_verified:
+            profile.is_company_verified = True
+            # Keep profile company in sync when verification is accepted.
+            profile.company = form_data["company_name"] or profile.company
+            profile.save(update_fields=["is_company_verified", "company"])
+            messages.success(
+                request,
+                "Company ownership verified. `is_company_verified` has been set to True.",
+            )
+        elif ownership.get("success") and ownership.get("decision") != "Verified":
+            messages.warning(
+                request,
+                f"Ownership decision: {ownership.get('decision')}. Company verification was not auto-approved.",
+            )
+
+        results = {
+            "company": {
+                "success": bool(company),
+                "data": company,
+            },
+            "tax": {
+                "success": bool(tax),
+                "data": tax,
+            },
+            "ownership": ownership,
+        }
+
+    context = {
+        "profile": profile,
+        "samples": OWNER_VERIFICATION_SAMPLES,
+        "selected_index": selected_index,
+        "form_data": form_data,
+        "results": results,
+    }
+    return render(request, "myapp/owner_verification.html", context)
 
 
 @login_required

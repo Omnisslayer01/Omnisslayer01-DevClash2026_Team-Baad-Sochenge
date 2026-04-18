@@ -18,9 +18,12 @@
                 <textarea name="bio" placeholder="Bio">{{ profile.bio }}</textarea>
                 <button class="btn" type="submit">Save Profile</button>
             </form>
-            <p class="muted"><span class="trust-status" title="Trust tier: {{ profile.trust_tier|capfirst }}">trust-status: {{ profile.trust_tier|trust_tier_emoji }}</span> · Score {{ request.user.trust_score }} · Connections: {{ accepted_connections }} · Face verified: {{ request.user.is_verified_human }}</p>
+            <p class="muted"><span class="trust-status" title="Trust tier: {{ profile.trust_tier|capfirst }}">{{ profile.trust_tier|trust_tier_emoji }}</span> · Score {{ request.user.trust_score }} · Connections: {{ accepted_connections }} · Face verified: {{ request.user.is_verified_human }}</p>
             {% if not request.user.is_verified_human %}
                 <a href="{% url 'start_verification' %}"><button class="btn btn-light">Complete Face Verification</button></a>
+            {% endif %}
+            {% if request.user.role == "company" and profile.is_boss %}
+                <a href="{% url 'owner_verification_lab' %}"><button class="btn btn-light">Open Owner Verification Lab</button></a>
             {% endif %}
         </div>
     </div>

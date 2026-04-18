@@ -28,10 +28,13 @@
             <a href="{% url 'opportunities' %}">Opportunities</a>
             <a href="{% url 'events' %}">Events</a>
             <a href="{% url 'promotions' %}">Promotion</a>
+            {% if request.user.is_authenticated and request.user.role == "company" and request.user.profile.is_boss %}
+                <a href="{% url 'owner_verification_lab' %}">Owner Verify</a>
+            {% endif %}
         </div>
         <div>
             {% if request.user.is_authenticated %}
-                <span class="trust-status" title="{% user_trust_tier_title request.user %}">trust-status: {% user_trust_emoji request.user %}</span>
+                <span class="trust-status" title="{% user_trust_tier_title request.user %}">{% user_trust_emoji request.user %}</span>
                 <span>{{ request.user.username }} | Trust {{ request.user.trust_score }}</span>
                 <a href="{% url 'logout' %}" style="margin-left: 10px;">Logout</a>
             {% else %}

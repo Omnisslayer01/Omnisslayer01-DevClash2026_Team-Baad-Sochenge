@@ -22,4 +22,5 @@ urlpatterns =[
     path('events/', views.event_list, name='events'),
     path('events/join/<int:event_id>/', views.join_event, name='join_event'),
     path('promotions/', views.promotions, name='promotions'),
+    path("owner-verification/", views.owner_verification_lab, name="owner_verification_lab"),
 ]

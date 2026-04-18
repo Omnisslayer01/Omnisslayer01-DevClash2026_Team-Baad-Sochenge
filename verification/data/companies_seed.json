@@ -1,0 +1,26 @@
+[
+  {
+    "cin": "U74999DL2019PTC346789",
+    "legal_name": "Acme Innovations Private Limited",
+    "status": "active",
+    "directors": ["Rajesh Kumar Sharma", "Priya Mehta"]
+  },
+  {
+    "cin": "L17110MH1973PLC019786",
+    "legal_name": "Heritage Textiles Limited",
+    "status": "active",
+    "directors": ["Anil Kapoor", "Sunita Desai", "Vikram Singh"]
+  },
+  {
+    "cin": "U45201KA2015PTC082341",
+    "legal_name": "BlueRiver Logistics Private Limited",
+    "status": "inactive",
+    "directors": ["Mohammed Irfan", "Lisa Wong"]
+  },
+  {
+    "cin": "U40109TN2020PTC131415",
+    "legal_name": "Southern Grid Energy Private Limited",
+    "status": "active",
+    "directors": ["Karthik Iyer", "Deepa Natarajan"]
+  }
+]

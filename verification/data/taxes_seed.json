@@ -1,0 +1,32 @@
+[
+  {
+    "gstin": "07AABCU9601R1ZV",
+    "legal_name": "ACME INNOVATIONS PVT LTD",
+    "status": "active",
+    "linked_cin": "U74999DL2019PTC346789"
+  },
+  {
+    "gstin": "27AAPFU0939F1ZV",
+    "legal_name": "Heritage Textiles Limited",
+    "status": "active",
+    "linked_cin": "L17110MH1973PLC019786"
+  },
+  {
+    "gstin": "29AABCB1234F1Z5",
+    "legal_name": "Blue River Logistix Pvt Ltd",
+    "status": "suspended",
+    "linked_cin": "U45201KA2015PTC082341"
+  },
+  {
+    "gstin": "33AABCS1234E1Z1",
+    "legal_name": "Southern Grid Energy Pvt Ltd",
+    "status": "active",
+    "linked_cin": "U40109TN2020PTC131415"
+  },
+  {
+    "gstin": "24AABCT9999E1Z9",
+    "legal_name": "Orphan Trading Company",
+    "status": "active",
+    "linked_cin": null
+  }
+]
