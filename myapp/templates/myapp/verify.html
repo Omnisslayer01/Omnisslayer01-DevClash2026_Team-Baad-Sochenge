@@ -29,6 +29,7 @@
         <canvas id="canvas"></canvas>
         
         <button id="captureBtn">Verify My Face</button>
+        <button id="challengeBtn" type="button">I completed blink + turn challenge</button>
         <p id="status"></p>
     </div>
 
@@ -39,8 +40,10 @@
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const captureBtn = document.getElementById('captureBtn');
+        const challengeBtn = document.getElementById('challengeBtn');
         const statusText = document.getElementById('status');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        let challengeCompleted = false;
 
         // Start the webcam
         navigator.mediaDevices.getUserMedia({ video: true })
@@ -53,7 +56,18 @@
                 statusText.style.color = "red";
             });
 
+        challengeBtn.addEventListener('click', () => {
+            challengeCompleted = true;
+            statusText.innerText = "Challenge marked complete. Capture and verify now.";
+            statusText.style.color = "green";
+        });
+
         captureBtn.addEventListener('click', () => {
+            if (!challengeCompleted) {
+                statusText.innerText = "Please complete live challenge first (blink + turn your head).";
+                statusText.style.color = "red";
+                return;
+            }
             // UI Update
             captureBtn.disabled = true;
             statusText.innerText = "Analyzing face... please wait.";
@@ -69,6 +83,7 @@
             canvas.toBlob(blob => {
                 const formData = new FormData();
                 formData.append('photo', blob, 'capture.jpg'); // Appending image file
+                formData.append('challenge_completed', 'true');
 
                 // Send to Django backend
                 fetch('{% url "process_liveness" %}', {

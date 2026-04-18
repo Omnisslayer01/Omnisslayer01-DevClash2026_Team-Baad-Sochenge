@@ -1,0 +1,40 @@
+{% extends "myapp/base.html" %}
+{% block title %}Promotion Center{% endblock %}
+{% block content %}
+<div class="layout">
+    <div class="panel">
+        <h3>Create Promotion</h3>
+        <p class="muted">Unlocked at trust score {{ promotion_threshold }}+ with completed human verification.</p>
+        {% if can_post %}
+            <form method="POST">
+                {% csrf_token %}
+                <input name="title" placeholder="Campaign title" required>
+                <select name="promotion_type">
+                    <option value="account_boost">Account Boost</option>
+                    <option value="post_boost">Post Boost</option>
+                    <option value="seo_campaign">SEO Campaign</option>
+                </select>
+                <input type="url" name="target_url" placeholder="Target URL (optional)">
+                <input type="number" name="budget" step="0.01" min="0" placeholder="Budget">
+                <textarea name="content" placeholder="Campaign content and SEO keyword strategy" required></textarea>
+                <button type="submit" class="btn">Launch Promotion</button>
+            </form>
+        {% else %}
+            <p>Promotion posting is locked for your account.</p>
+            <p class="muted">Complete profile, gain connections, and finish face verification.</p>
+        {% endif %}
+    </div>
+    <div style="grid-column: span 2;">
+        {% for promotion in promotions %}
+            <div class="panel">
+                <h3>{{ promotion.title }}</h3>
+                <p class="muted">{{ promotion.get_promotion_type_display }} by {{ promotion.owner.username }} | Budget: {{ promotion.budget }}</p>
+                {% if promotion.target_url %}<p class="muted">Target: {{ promotion.target_url }}</p>{% endif %}
+                <p>{{ promotion.content }}</p>
+            </div>
+        {% empty %}
+            <div class="panel">No promotions yet.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
