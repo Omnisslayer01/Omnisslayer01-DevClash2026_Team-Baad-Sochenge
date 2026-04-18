@@ -1,0 +1,13 @@
+<h2>Events</h2>
+
+<a href="/events/create/">+ Create Event</a>
+
+{% for event in events %}
+    <div>
+        <h3>{{ event.title }}</h3>
+        <p>{{ event.description }}</p>
+        <p>{{ event.location }}</p>
+
+        <a href="/events/join/{{ event.id }}/">Join</a>
+    </div>
+{% endfor %}

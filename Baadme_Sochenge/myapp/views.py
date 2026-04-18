@@ -5,7 +5,7 @@ from django.shortcuts import render, redirect
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from .models import User
+from .models import User, Event, Registration
 from django.conf import settings
 
 # Add your Luxand API Token here (ideally move this to settings.py later)
@@ -83,3 +83,39 @@ def process_liveness(request):
 @login_required
 def dashboard(request):
     return render(request, 'myapp/dashboard.html')
+
+# ================= EVENTS =================
+
+@login_required
+def event_list(request):
+    events = Event.objects.all().order_by('-created_at')
+    return render(request, 'myapp/events.html', {'events': events})
+
+
+@login_required
+def create_event(request):
+    if not request.user.is_verified_human:
+        return JsonResponse({"error": "You must be verified to create events"})
+
+    if request.method == "POST":
+        Event.objects.create(
+            title=request.POST.get('title'),
+            description=request.POST.get('description'),
+            date=request.POST.get('date'),
+            location=request.POST.get('location'),
+            banner=request.FILES.get('banner'),
+            created_by=request.user
+        )
+        return redirect('events')
+
+    return render(request, 'myapp/create_event.html')
+
+
+@login_required
+def join_event(request, event_id):
+    event = Event.objects.get(id=event_id)
+
+    if not Registration.objects.filter(user=request.user, event=event).exists():
+        Registration.objects.create(user=request.user, event=event)
+
+    return redirect('events')

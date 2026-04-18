@@ -1,0 +1,11 @@
+<h2>Create Event</h2>
+
+<form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input name="title" placeholder="Title"><br>
+    <textarea name="description"></textarea><br>
+    <input type="datetime-local" name="date"><br>
+    <input name="location"><br>
+    <input type="file" name="banner"><br>
+    <button type="submit">Create</button>
+</form>
