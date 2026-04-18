@@ -1,13 +1,38 @@
-<h2>Events</h2>
-
-<a href="/events/create/">+ Create Event</a>
-
-{% for event in events %}
-    <div>
-        <h3>{{ event.title }}</h3>
-        <p>{{ event.description }}</p>
-        <p>{{ event.location }}</p>
-
-        <a href="/events/join/{{ event.id }}/">Join</a>
+{% extends "myapp/base.html" %}
+{% block title %}Events{% endblock %}
+{% block content %}
+<div class="layout">
+    <div class="panel">
+        <h3>Host Event</h3>
+        <p class="muted">Verified users with trust score {{ event_threshold }}+ can host events.</p>
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input name="title" placeholder="Event title" required>
+            <textarea name="description" placeholder="Event details" required></textarea>
+            <input type="datetime-local" name="date" required>
+            <input name="location" placeholder="Venue / Virtual link" required>
+            <input type="number" name="ticket_price" step="0.01" min="0" placeholder="Ticket price">
+            <input type="number" name="max_attendees" min="1" placeholder="Max attendees">
+            <input type="file" name="banner">
+            <button type="submit" class="btn">Create Event</button>
+        </form>
     </div>
-{% endfor %}
+    <div style="grid-column: span 2;">
+        {% for event in events %}
+            <div class="panel">
+                <h3>{{ event.title }}</h3>
+                <p class="muted">By {{ event.created_by.username }} | {{ event.date }} | {{ event.location }}</p>
+                <p>{{ event.description }}</p>
+                <p class="muted">Ticket: {{ event.ticket_price }} | Seats: {{ event.max_attendees }}</p>
+                <form method="POST" action="{% url 'join_event' event.id %}">
+                    {% csrf_token %}
+                    <input type="number" name="ticket_count" value="1" min="1">
+                    <button type="submit" class="btn btn-light">Join and Book Ticket</button>
+                </form>
+            </div>
+        {% empty %}
+            <div class="panel">No events posted yet.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "myapp/base.html" %}
+{% block title %}Opportunities{% endblock %}
+{% block content %}
+<div class="layout">
+    <div class="panel">
+        <h3>Post Job Opportunity</h3>
+        <p class="muted">Companies and professionals can post open vacancies for the network.</p>
+        <form method="POST">
+            {% csrf_token %}
+            <input name="title" placeholder="Role title" required>
+            <input name="company" placeholder="Company name" required>
+            <input name="location" placeholder="Location" required>
+            <textarea name="description" placeholder="Role description" required></textarea>
+            <label><input type="checkbox" name="is_remote"> Remote role</label>
+            <button type="submit" class="btn">Publish Opportunity</button>
+        </form>
+    </div>
+    <div style="grid-column: span 2;">
+        {% for job in jobs %}
+            <div class="panel">
+                <h3>{{ job.title }} at {{ job.company }}</h3>
+                <p class="muted">Posted by {{ job.posted_by.username }} | {{ job.location }} {% if job.is_remote %}| Remote{% endif %}</p>
+                <p>{{ job.description }}</p>
+                <p class="muted">Applications: {{ job.total_applications }}</p>
+                <form method="POST" action="{% url 'apply_job' job.id %}">
+                    {% csrf_token %}
+                    <input name="note" placeholder="Short note (optional)">
+                    <button type="submit" class="btn btn-light">Apply via Network</button>
+                </form>
+            </div>
+        {% empty %}
+            <div class="panel">No opportunities posted yet.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

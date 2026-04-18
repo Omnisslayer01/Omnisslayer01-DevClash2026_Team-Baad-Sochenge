@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,10 +21,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-&j-%_y5=4j06pxq4o!w29ikiu6wl9w0eqyqx*%9@+7w82_@r4q"
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret-key")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
 ALLOWED_HOSTS = ['*']
 
@@ -115,20 +116,13 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 
-AUTH_USER_MODEL = 'myapp.User'
-
-# Stripe Configuration (Get these from your Stripe Dashboard -> Developers -> API Keys)
-# Use TEST keys for the hackathon (pk_test_..., sk_test_...)
-STRIPE_SECRET_KEY = '03d0e1da50a046a486eb5e08920f6e00'
-STRIPE_PUBLIC_KEY = 'pk_test_your_public_key'
-
-# Redirects
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'dashboard'
+LOGIN_REDIRECT_URL = 'home'
 
 AUTH_USER_MODEL = 'accounts.User'
 
-import os
-
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+
+LUXAND_API_TOKEN = os.getenv("LUXAND_API_TOKEN", "")
