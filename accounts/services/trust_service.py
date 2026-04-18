@@ -1,3 +1,6 @@
+from accounts.models import Profile
+
+
 def calculate_trust_score(user):
     score = 20
 
@@ -8,8 +11,23 @@ def calculate_trust_score(user):
     if user.is_verified_human:
         score += 20
 
-    if hasattr(user, 'profile') and user.profile.is_complete():
+    try:
+        profile = user.profile
+    except Profile.DoesNotExist:
+        profile = None
+
+    if profile and profile.is_complete():
         score += 20
+
+    # Document-based tier (orthogonal to face verification; boosts score when admins verify)
+    if profile:
+        tier = profile.trust_tier
+        if tier == "yellow":
+            score += 5
+        elif tier == "blue":
+            score += 10
+        elif tier == "green":
+            score += 15
 
     connections = user.sent_connections.filter(status='accepted').count()
     if connections >= 5:
