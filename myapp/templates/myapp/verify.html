@@ -1,0 +1,219 @@
+<!-- templates/myapp/verify.html — client liveness (MediaPipe blink) + optional Luxand on server -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liveness Verification</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f4f4f9; padding: 2rem; }
+        .camera-container { background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; max-width: 520px; width: 100%; }
+        video { width: 100%; max-width: 400px; border-radius: 4px; background: #000; transform: scaleX(-1); }
+        canvas { display: none; }
+        button { margin-top: 1rem; padding: 10px 20px; background: #0056b3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
+        button:hover { background: #004494; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #status { margin-top: 1rem; font-weight: bold; color: #333; }
+        .hint { font-size: 0.9rem; color: #555; margin-top: 0.5rem; }
+        .timer { font-size: 1.1rem; color: #c0392b; margin: 0.5rem 0; }
+        .blink-row { font-size: 1.2rem; margin: 0.75rem 0; }
+    </style>
+</head>
+<body>
+
+    <div class="camera-container">
+        <h2>Face verification</h2>
+        <p>Blink naturally <strong id="targetBlinksLabel">3</strong> times within <strong id="windowLabel">30</strong> seconds. Then capture for the server check.</p>
+        <p class="timer" id="timerText">Time left: 30s</p>
+        <p class="blink-row">Blinks detected: <span id="blinkCount">0</span> / <span id="targetSpan">3</span></p>
+        <p class="hint" id="livenessHint">Starting camera…</p>
+
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+
+        <button id="captureBtn" disabled>Verify my face</button>
+        <button id="fallbackBtn" type="button" style="background:#888;font-size:0.85rem;">Camera/AI unavailable — mark challenge done (demo only)</button>
+        <p id="status"></p>
+    </div>
+
+    <form id="csrfForm">{% csrf_token %}</form>
+
+    <script>
+        const TARGET_BLINKS = 3;
+        const TIME_LIMIT_SEC = 30;
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('captureBtn');
+        const fallbackBtn = document.getElementById('fallbackBtn');
+        const statusText = document.getElementById('status');
+        const blinkCountEl = document.getElementById('blinkCount');
+        const targetSpan = document.getElementById('targetSpan');
+        const timerText = document.getElementById('timerText');
+        const livenessHint = document.getElementById('livenessHint');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        targetSpan.textContent = TARGET_BLINKS;
+        document.getElementById('targetBlinksLabel').textContent = TARGET_BLINKS;
+        document.getElementById('windowLabel').textContent = TIME_LIMIT_SEC;
+
+        let challengeCompleted = false;
+        let manualOverride = false;
+        let blinkCount = 0;
+        let isEyesClosed = false;
+        let timeUp = false;
+        const deadline = Date.now() + TIME_LIMIT_SEC * 1000;
+
+        function tickTimer() {
+            const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+            timerText.textContent = 'Time left: ' + left + 's';
+            if (left <= 0 && !timeUp) {
+                timeUp = true;
+                timerText.textContent = 'Time expired';
+                timerText.style.color = '#c0392b';
+                if (!challengeCompleted) {
+                    livenessHint.textContent = 'Window ended — use demo fallback or refresh to retry.';
+                    livenessHint.style.color = '#c0392b';
+                }
+            }
+            if (!timeUp) requestAnimationFrame(tickTimer);
+        }
+        tickTimer();
+
+        function calculateDistance(a, b) {
+            return Math.hypot(a.x - b.x, a.y - b.y);
+        }
+
+        /** Eye aspect ratio — one eye from Face Mesh landmarks */
+        function eyeEAR(upper, lower, left, right) {
+            const v = calculateDistance(upper, lower);
+            const h = calculateDistance(left, right);
+            return h > 1e-6 ? v / h : 0;
+        }
+
+        function updateChallengeState() {
+            const ok = manualOverride || (blinkCount >= TARGET_BLINKS && !timeUp);
+            challengeCompleted = ok;
+            captureBtn.disabled = !ok;
+            if (ok) {
+                livenessHint.textContent = 'Liveness OK — you can verify.';
+                livenessHint.style.color = 'green';
+            }
+        }
+
+        fallbackBtn.addEventListener('click', () => {
+            manualOverride = true;
+            challengeCompleted = true;
+            captureBtn.disabled = false;
+            livenessHint.textContent = 'Demo mode: challenge skipped. Server may still use Luxand if configured.';
+            livenessHint.style.color = '#e67e22';
+        });
+
+        // --- MediaPipe Face Mesh (blink) ---
+        function initMediaPipe() {
+            if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
+                livenessHint.textContent = 'MediaPipe failed to load. Use demo fallback or refresh.';
+                return;
+            }
+
+            const faceMesh = new FaceMesh({
+                locateFile: (file) => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + file
+            });
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            const BLINK_THRESHOLD = 0.21;
+
+            faceMesh.onResults((results) => {
+                if (timeUp || challengeCompleted) return;
+                if (!results.multiFaceLandmarks || !results.multiFaceLandmarks.length) return;
+
+                const lm = results.multiFaceLandmarks[0];
+                // Right eye (subject's right): top/bottom/horizontal corners
+                const rEAR = eyeEAR(lm[159], lm[145], lm[33], lm[133]);
+                // Left eye
+                const lEAR = eyeEAR(lm[386], lm[374], lm[362], lm[263]);
+                const ear = (rEAR + lEAR) / 2;
+
+                if (ear < BLINK_THRESHOLD && !isEyesClosed) {
+                    isEyesClosed = true;
+                } else if (ear >= BLINK_THRESHOLD && isEyesClosed) {
+                    isEyesClosed = false;
+                    blinkCount++;
+                    blinkCountEl.textContent = blinkCount;
+                    updateChallengeState();
+                }
+            });
+
+            const camera = new Camera(video, {
+                onFrame: async () => {
+                    await faceMesh.send({ image: video });
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+            livenessHint.textContent = 'Look at the camera and blink ' + TARGET_BLINKS + ' times.';
+        }
+
+        try {
+            initMediaPipe();
+        } catch (e) {
+            console.error(e);
+            livenessHint.textContent = 'Could not start face tracking. Use fallback or allow camera.';
+        }
+
+        captureBtn.addEventListener('click', () => {
+            if (!challengeCompleted) {
+                statusText.innerText = 'Complete the blink challenge first (or use demo fallback).';
+                statusText.style.color = 'red';
+                return;
+            }
+            captureBtn.disabled = true;
+            statusText.innerText = 'Analyzing… please wait.';
+            statusText.style.color = 'blue';
+
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob((blob) => {
+                const formData = new FormData();
+                formData.append('photo', blob, 'capture.jpg');
+                formData.append('challenge_completed', 'true');
+
+                fetch('{% url "process_liveness" %}', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrfToken },
+                    body: formData
+                })
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data.success) {
+                        statusText.innerText = 'Success! Redirecting…';
+                        statusText.style.color = 'green';
+                        if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
+                        setTimeout(() => { window.location.href = "{% url 'dashboard' %}"; }, 800);
+                    } else {
+                        statusText.innerText = 'Failed: ' + data.message;
+                        statusText.style.color = 'red';
+                        captureBtn.disabled = false;
+                    }
+                })
+                .catch(() => {
+                    statusText.innerText = 'Network error. Try again.';
+                    statusText.style.color = 'red';
+                    captureBtn.disabled = false;
+                });
+            }, 'image/jpeg', 0.92);
+        });
+    </script>
+</body>
+</html>
