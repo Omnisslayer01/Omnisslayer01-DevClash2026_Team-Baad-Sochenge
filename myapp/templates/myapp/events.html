@@ -3,42 +3,62 @@
 {% block content %}
 <div class="layout">
     <div class="panel">
-        <h3>Host Event</h3>
-        {% if can_host_events %}
-            <p class="muted">Verified user — you can publish events. Anyone can still browse and join without hosting.</p>
+        <h3>Host platform event</h3>
+        {% if can_host_platform %}
+            <p class="muted">Uses wallet-backed ticketing. You need a verified payment account on file.</p>
             <form method="POST" enctype="multipart/form-data">
                 {% csrf_token %}
+                <input type="hidden" name="form_type" value="host_platform">
                 <input name="title" placeholder="Event title" required>
                 <textarea name="description" placeholder="Event details" required></textarea>
-                <input type="datetime-local" name="date" required>
-                <input name="location" placeholder="Venue / Virtual link" required>
-                <input type="number" name="ticket_price" step="0.01" min="0" placeholder="Ticket price">
-                <input type="number" name="max_attendees" min="1" placeholder="Max attendees">
-                <input type="file" name="banner">
-                <button type="submit" class="btn">Create Event</button>
+                <input name="venue_name" placeholder="Venue name" required>
+                <textarea name="address" placeholder="Full address (used for map / display)" required></textarea>
+                {% if allow_manual_coords %}
+                    <p class="muted">Maps API is off — enter coordinates (dev).</p>
+                    <input name="latitude" type="text" placeholder="Latitude e.g. 28.6139" required>
+                    <input name="longitude" type="text" placeholder="Longitude e.g. 77.2090" required>
+                {% endif %}
+                <input type="date" name="event_date" required>
+                <input type="time" name="event_time" required>
+                <input type="number" name="ticket_price" step="0.01" min="0" placeholder="Ticket price (INR)" value="0">
+                <input type="number" name="total_slots" min="1" placeholder="Total slots" required>
+                <label class="muted">Payout account</label>
+                <select name="payment_account" required>
+                    {% for acc in payment_accounts %}
+                        <option value="{{ acc.id }}">{{ acc.id }} — verified: {{ acc.is_verified }}</option>
+                    {% endfor %}
+                </select>
+                <label class="muted">Banner image (required)</label>
+                <input type="file" name="banner_image" accept="image/jpeg,image/png,image/webp" required>
+                <button type="submit" class="btn">Publish platform event</button>
             </form>
         {% else %}
-            <p class="muted">Hosting needs a <strong>verified user</strong> account (Profile → Upgrade). You can still join events below.</p>
-            {% if profile %}
-                <p class="muted">Organizer profile: {% if is_event_organizer %}active{% else %}pending verification{% endif %}</p>
+            <p class="muted">To host here you need a <strong>verified user</strong> profile, identity eligible for events (blue/green badge or ID verified), and at least one <strong>ops-verified</strong> organizer payment account.</p>
+            {% if profile and profile.is_verified_user and not payment_accounts %}
+                <p class="muted">Add a payment account via Organizer hub or ask an admin to verify one.</p>
             {% endif %}
         {% endif %}
     </div>
     <div style="grid-column: span 2;">
-        {% for event in events %}
+        <p class="muted">Booking uses your <a href="{% url 'wallet' %}">wallet</a> for paid events (escrow until the event completes).</p>
+        {% for event in platform_events %}
             <div class="panel">
+                {% if event.banner_image %}
+                    <p><img src="{{ event.banner_image.url }}" alt="" style="max-width:100%;max-height:180px;border-radius:8px;"></p>
+                {% endif %}
                 <h3>{{ event.title }}</h3>
-                <p class="muted">By {{ event.created_by.username }} | {{ event.date }} | {{ event.location }}</p>
+                <p class="muted">By {{ event.organizer.username }} · {{ event.event_date }} {{ event.event_time }} · {{ event.venue_name }}</p>
                 <p>{{ event.description }}</p>
-                <p class="muted">Ticket: {{ event.ticket_price }} | Seats: {{ event.max_attendees }}</p>
+                <p class="muted">₹{{ event.ticket_price }} · {{ event.total_registered }} / {{ event.total_slots }} booked</p>
                 <form method="POST" action="{% url 'join_event' event.id %}">
                     {% csrf_token %}
-                    <input type="number" name="ticket_count" value="1" min="1">
-                    <button type="submit" class="btn btn-light">Join and Book Ticket</button>
+                    <label class="muted">Tickets</label>
+                    <input type="number" name="quantity" value="1" min="1" max="10">
+                    <button type="submit" class="btn btn-light">Book with wallet</button>
                 </form>
             </div>
         {% empty %}
-            <div class="panel">No events posted yet.</div>
+            <div class="panel">No platform events yet. Host one on the left (if eligible) or ask an organizer to publish.</div>
         {% endfor %}
     </div>
 </div>

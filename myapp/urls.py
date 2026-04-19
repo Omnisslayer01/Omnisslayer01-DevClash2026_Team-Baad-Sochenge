@@ -20,7 +20,12 @@ urlpatterns =[
     path('opportunities/', views.opportunities, name='opportunities'),
     path('opportunities/<int:job_id>/apply/', views.apply_job, name='apply_job'),
     path('events/', views.event_list, name='events'),
-    path('events/join/<int:event_id>/', views.join_event, name='join_event'),
+    path(
+        'events/join/<uuid:event_id>/',
+        views.join_platform_event,
+        name='join_event',
+    ),
+    path('wallet/', views.wallet_dashboard, name='wallet'),
     path('promotions/', views.promotions, name='promotions'),
     path("owner-verification/", views.owner_verification_lab, name="owner_verification_lab"),
     path("fundraiser/start/", views.start_fundraiser, name="start_fundraiser"),

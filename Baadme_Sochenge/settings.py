@@ -38,9 +38,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
     "myapp",
     "accounts",
     "verification",
+    "events_api",
 ]
 
 MIDDLEWARE = [
@@ -65,6 +67,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "myapp.context_processors.wallet_nav",
             ],
         },
     },
@@ -137,3 +140,24 @@ EMAIL_BACKEND = os.getenv(
 )
 DEFAULT_FROM_EMAIL = os.getenv("DJANGO_DEFAULT_FROM_EMAIL", "noreply@baadme-sochenge.local")
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.AllowAny",
+    ],
+}
+
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+ALLOW_VENUE_WITHOUT_MAPS = os.getenv("ALLOW_VENUE_WITHOUT_MAPS", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+REQUESTS_TIMEOUT_SEC = int(os.getenv("REQUESTS_TIMEOUT_SEC", "15"))
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")

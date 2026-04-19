@@ -1,6 +1,10 @@
 import json
 import secrets
 import requests
+from decimal import Decimal
+
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
@@ -25,9 +29,9 @@ from accounts.services.trust_service import update_trust_score
 from accounts.services.sandbox_service import verify_identity_sandbox, mark_profile_sandbox_time
 from verification.facade import run_ownership_verification
 from verification.repositories import get_company_by_cin, get_tax_by_gstin
+from rest_framework import serializers as drf_serializers
+
 from .models import (
-    Event,
-    Registration,
     Post,
     Comment,
     Like,
@@ -269,55 +273,243 @@ def apply_job(request, job_id):
     return redirect("opportunities")
 
 
+def _append_drf_validation_messages(request, exc: drf_serializers.ValidationError) -> None:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        for key, val in detail.items():
+            text = val[0] if isinstance(val, list) else val
+            messages.error(request, f"{key}: {text}")
+    elif isinstance(detail, list):
+        for item in detail:
+            messages.error(request, str(item))
+    else:
+        messages.error(request, str(detail))
+
+
 @login_required
 def event_list(request):
+    from events_api import services as platform_event_services
+    from events_api.models import Event as PlatformEvent, OrganizerPaymentAccount
+    from events_api.serializers import EventCreateSerializer
+
     profile, _ = Profile.objects.get_or_create(
         user=request.user,
         defaults={"name": request.user.full_name or request.user.username},
     )
-    if request.method == "POST":
+
+    if request.method == "POST" and request.POST.get("form_type") == "host_platform":
         if not profile.is_verified_user:
             return HttpResponseForbidden(
-                "Become a verified user (employee, owner, or organiser path on Profile → Upgrade) to host events."
+                "Become a verified user (Profile → Upgrade) to host platform events."
             )
-
-        Event.objects.create(
-            title=request.POST.get("title", ""),
-            description=request.POST.get("description", ""),
-            date=request.POST.get("date"),
-            location=request.POST.get("location", ""),
-            banner=request.FILES.get("banner"),
-            ticket_price=request.POST.get("ticket_price") or 0,
-            max_attendees=request.POST.get("max_attendees") or 100,
-            created_by=request.user,
+        if not platform_event_services.organizer_identity_allowed_for_events(request.user):
+            messages.error(
+                request,
+                "Platform hosting needs verified identity (blue/green badge or government ID verified).",
+            )
+            return redirect("events")
+        ser = EventCreateSerializer(
+            data=request.POST,
+            files=request.FILES,
+            context={"request": request},
         )
-        messages.success(request, "Event published.")
+        if ser.is_valid():
+            ser.save()
+            messages.success(request, "Platform event published.")
+        else:
+            messages.error(request, ser.errors.as_text())
         return redirect("events")
 
-    events = Event.objects.select_related("created_by")
+    platform_events = (
+        PlatformEvent.objects.filter(status=PlatformEvent.STATUS_ACTIVE)
+        .select_related("organizer", "payment_account")
+        .order_by("event_date", "event_time")
+    )
+    payment_accounts = OrganizerPaymentAccount.objects.filter(user=request.user).order_by(
+        "-created_at"
+    )
+    can_host_platform = (
+        profile.is_verified_user
+        and platform_event_services.organizer_identity_allowed_for_events(request.user)
+        and payment_accounts.exists()
+    )
     return render(
         request,
         "myapp/events.html",
         {
-            "events": events,
+            "platform_events": platform_events,
             "profile": profile,
-            "can_host_events": profile.is_verified_user,
+            "can_host_platform": can_host_platform,
+            "payment_accounts": payment_accounts,
+            "allow_manual_coords": getattr(settings, "ALLOW_VENUE_WITHOUT_MAPS", False),
             "is_event_organizer": profile.is_event_organizer,
         },
     )
 
 
 @login_required
-def join_event(request, event_id):
-    event = Event.objects.get(id=event_id)
-    if request.method == "POST":
-        Registration.objects.get_or_create(
-            user=request.user,
-            event=event,
-            defaults={"ticket_count": int(request.POST.get("ticket_count", 1))},
+def join_platform_event(request, event_id):
+    from events_api.models import Event as PlatformEvent
+    from events_api.serializers import enroll_user_in_event
+
+    event = get_object_or_404(
+        PlatformEvent, pk=event_id, status=PlatformEvent.STATUS_ACTIVE
+    )
+    if request.method != "POST":
+        return redirect("events")
+    if event.organizer_id == request.user.id:
+        messages.error(request, "You cannot book tickets for your own event.")
+        return redirect("events")
+    try:
+        qty = max(1, int(request.POST.get("quantity", 1)))
+    except ValueError:
+        qty = 1
+    try:
+        enroll_user_in_event(event=event, user=request.user, quantity=qty)
+        messages.success(
+            request,
+            "Ticket booked. If the event is paid, the amount was debited from your wallet and held in escrow.",
         )
-        messages.success(request, "Ticket booked.")
+    except drf_serializers.ValidationError as e:
+        _append_drf_validation_messages(request, e)
     return redirect("events")
+
+
+@login_required
+def wallet_dashboard(request):
+    import uuid as uuid_mod
+
+    from events_api import razorpay_service, wallet_services
+    from events_api.models import UserWallet, WalletTopUp
+
+    eligible = wallet_services.user_may_use_wallet(request.user)
+    wallet = UserWallet.objects.filter(user=request.user).first() if eligible else None
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "dismiss_checkout":
+            request.session.pop("wallet_checkout", None)
+            messages.info(request, "Checkout dismissed.")
+            return redirect("wallet")
+        if action == "verify":
+            if not eligible:
+                messages.error(request, "Verify your identity to use the wallet.")
+                return redirect("wallet")
+            oid = request.POST.get("razorpay_order_id", "")
+            pid = request.POST.get("razorpay_payment_id", "")
+            sig = request.POST.get("razorpay_signature", "")
+            if not razorpay_service.verify_payment_signature(
+                order_id=oid, payment_id=pid, signature=sig
+            ):
+                messages.error(request, "Invalid payment signature.")
+                return redirect("wallet")
+            tu = WalletTopUp.objects.filter(user=request.user, razorpay_order_id=oid).first()
+            if not tu:
+                messages.error(request, "Unknown order for this account.")
+                return redirect("wallet")
+            try:
+                pay = razorpay_service.fetch_payment(pid)
+            except drf_serializers.ValidationError as e:
+                _append_drf_validation_messages(request, e)
+                return redirect("wallet")
+            if pay.get("order_id") != oid:
+                messages.error(request, "Payment does not match order.")
+                return redirect("wallet")
+            if pay.get("status") not in ("authorized", "captured"):
+                messages.error(request, "Payment was not captured.")
+                return redirect("wallet")
+            amt_paise = int(pay.get("amount") or 0)
+            if amt_paise != int(tu.amount * 100):
+                messages.error(request, "Amount mismatch.")
+                return redirect("wallet")
+            try:
+                with transaction.atomic():
+                    tu_locked = WalletTopUp.objects.select_for_update().get(pk=tu.pk)
+                    if tu_locked.status == WalletTopUp.STATUS_COMPLETED:
+                        messages.info(request, "This payment was already applied.")
+                    else:
+                        wallet_services.credit_wallet_topup(
+                            user=request.user,
+                            amount=tu_locked.amount,
+                            razorpay_order_id=oid,
+                            razorpay_payment_id=pid,
+                        )
+                        tu_locked.razorpay_payment_id = pid
+                        tu_locked.status = WalletTopUp.STATUS_COMPLETED
+                        tu_locked.save(update_fields=["razorpay_payment_id", "status"])
+                        messages.success(request, "Wallet topped up.")
+            except drf_serializers.ValidationError as e:
+                _append_drf_validation_messages(request, e)
+            request.session.pop("wallet_checkout", None)
+            return redirect("wallet")
+
+        if action == "order":
+            if not eligible:
+                messages.error(request, "Verify your identity to use the wallet.")
+                return redirect("wallet")
+            try:
+                amount = Decimal(request.POST.get("amount", "0"))
+            except Exception:
+                amount = Decimal("0")
+            try:
+                receipt = f"wt_{request.user.id}_{uuid_mod.uuid4().hex[:12]}"
+                order = razorpay_service.create_order(
+                    amount_inr=amount,
+                    receipt=receipt,
+                    notes={"user_id": str(request.user.id)},
+                )
+            except drf_serializers.ValidationError as e:
+                _append_drf_validation_messages(request, e)
+                return redirect("wallet")
+            WalletTopUp.objects.create(
+                user=request.user,
+                amount=amount,
+                razorpay_order_id=order["id"],
+                status=WalletTopUp.STATUS_PENDING,
+            )
+            key_id = razorpay_service.get_publishable_key_id()
+            if not key_id:
+                messages.error(
+                    request,
+                    "Razorpay order was created but publishable key id is missing.",
+                )
+                return redirect("wallet")
+            request.session["wallet_checkout"] = {
+                "order_id": order["id"],
+                "amount_paise": int(order["amount"]),
+                "key_id": key_id,
+            }
+            return redirect("wallet")
+
+        if action == "demo_credit":
+            try:
+                amount = Decimal(request.POST.get("amount", "0"))
+            except Exception:
+                amount = Decimal("0")
+            try:
+                wallet_services.debug_staff_wallet_credit(user=request.user, amount=amount)
+                messages.success(request, "Demo credit applied to your wallet.")
+            except PermissionDenied:
+                messages.error(
+                    request,
+                    "Demo credit is only available for staff accounts while DEBUG is on.",
+                )
+            except drf_serializers.ValidationError as e:
+                _append_drf_validation_messages(request, e)
+            return redirect("wallet")
+
+    checkout = request.session.get("wallet_checkout")
+    return render(
+        request,
+        "myapp/wallet.html",
+        {
+            "wallet": wallet,
+            "wallet_eligible": eligible,
+            "razorpay_configured": razorpay_service.razorpay_configured(),
+            "checkout": checkout,
+            "debug": settings.DEBUG,
+        },
+    )
 
 
 @login_required

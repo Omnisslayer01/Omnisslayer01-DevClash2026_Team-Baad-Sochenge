@@ -23,3 +23,17 @@ def create_event_organizer_when_verified_user(sender, instance, **kwargs):
             user=instance.user,
             defaults={"display_name": instance.name or instance.user.username},
         )
+
+
+@receiver(post_save, sender=Profile)
+def ensure_platform_wallet_for_eligible_user(sender, instance, **kwargs):
+    """Pre-create user wallet when identity tier allows wallet / event booking."""
+    from rest_framework.exceptions import ValidationError as DRFValidationError
+
+    try:
+        from events_api.wallet_services import get_or_create_user_wallet, user_may_use_wallet
+
+        if user_may_use_wallet(instance.user):
+            get_or_create_user_wallet(instance.user)
+    except DRFValidationError:
+        pass

@@ -1,0 +1,78 @@
+{% extends "myapp/base.html" %}
+{% block title %}Wallet{% endblock %}
+{% block content %}
+<div class="layout">
+    <div class="panel" style="grid-column: 1 / -1;">
+        <h2>Wallet</h2>
+        {% if not wallet_eligible %}
+            <p class="muted">Your account is not yet eligible for a platform wallet. Complete identity verification (blue/green trust tier or verified-user path on Profile → Upgrade), then return here.</p>
+            <p><a href="{% url 'account_profile' %}" class="btn">Go to profile</a></p>
+        {% else %}
+            <p><strong>Balance:</strong> {% if wallet %}₹{{ wallet.balance }} {{ wallet.currency }}{% else %}₹0.00 (no activity yet){% endif %}</p>
+            <p class="muted">Add money with Razorpay (test keys in .env). Paid event tickets debit this balance into escrow.</p>
+
+            {% if checkout and checkout.key_id %}
+                <p class="muted">Order <code>{{ checkout.order_id }}</code> is ready — complete payment below.</p>
+                <button type="button" class="btn" id="rzp-trigger">Pay with Razorpay</button>
+                <form method="post" style="display:inline;margin-left:8px;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="dismiss_checkout">
+                    <button type="submit" class="btn btn-light">Dismiss</button>
+                </form>
+                <form id="verify-form" method="post" action="{% url 'wallet' %}" style="display:none;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="verify">
+                    <input type="hidden" name="razorpay_order_id" id="vf_order_id">
+                    <input type="hidden" name="razorpay_payment_id" id="vf_payment_id">
+                    <input type="hidden" name="razorpay_signature" id="vf_signature">
+                </form>
+                <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+                <script>
+                (function() {
+                    var btn = document.getElementById("rzp-trigger");
+                    if (!btn) return;
+                    btn.addEventListener("click", function() {
+                        var options = {
+                            "key": "{{ checkout.key_id|escapejs }}",
+                            "amount": {{ checkout.amount_paise }},
+                            "currency": "INR",
+                            "name": "Baadme wallet",
+                            "description": "Top-up",
+                            "order_id": "{{ checkout.order_id|escapejs }}",
+                            "handler": function (response) {
+                                document.getElementById("vf_order_id").value = response.razorpay_order_id;
+                                document.getElementById("vf_payment_id").value = response.razorpay_payment_id;
+                                document.getElementById("vf_signature").value = response.razorpay_signature;
+                                document.getElementById("verify-form").submit();
+                            }
+                        };
+                        var rzp = new Razorpay(options);
+                        rzp.open();
+                    });
+                })();
+                </script>
+            {% elif not razorpay_configured %}
+                <p class="muted">Razorpay is not configured (<code>RAZORPAY_KEY_ID</code> / <code>RAZORPAY_KEY_SECRET</code>).</p>
+                {% if debug and request.user.is_staff %}
+                    <h4>Staff demo credit (DEBUG)</h4>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="demo_credit">
+                        <input type="number" name="amount" step="0.01" min="0.01" max="50000" value="500" required>
+                        <button type="submit" class="btn">Add demo balance</button>
+                    </form>
+                {% endif %}
+            {% else %}
+                <h4>Top up</h4>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="order">
+                    <label class="muted">Amount (INR)</label>
+                    <input type="number" name="amount" step="0.01" min="1" value="100" required>
+                    <button type="submit" class="btn">Create Razorpay order</button>
+                </form>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
