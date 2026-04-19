@@ -127,3 +127,13 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 LUXAND_API_TOKEN = os.getenv("LUXAND_API_TOKEN", "")
+
+# Demo sandbox API (set in production); empty = accept requests without key in DEBUG only
+SANDBOX_API_KEY = os.getenv("SANDBOX_API_KEY", "")
+
+EMAIL_BACKEND = os.getenv(
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = os.getenv("DJANGO_DEFAULT_FROM_EMAIL", "noreply@baadme-sochenge.local")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL

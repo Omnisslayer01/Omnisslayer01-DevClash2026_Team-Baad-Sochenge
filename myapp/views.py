@@ -1,3 +1,5 @@
+import json
+import secrets
 import requests
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, authenticate, logout
@@ -6,9 +8,21 @@ from django.http import JsonResponse, HttpResponseForbidden
 from django.contrib import messages
 from django.db.models import Count
 from django.contrib.auth import get_user_model
+from django.urls import reverse
+from django.core.mail import send_mail
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 
-from accounts.models import Connection, Profile
+from accounts.models import (
+    Connection,
+    Profile,
+    EmployeeAffiliationRequest,
+    CLAIM_EMPLOYEE,
+    CLAIM_OWNER,
+    CLAIM_ORGANISER,
+)
 from accounts.services.trust_service import update_trust_score
+from accounts.services.sandbox_service import verify_identity_sandbox, mark_profile_sandbox_time
 from verification.facade import run_ownership_verification
 from verification.repositories import get_company_by_cin, get_tax_by_gstin
 from .models import (
@@ -26,7 +40,6 @@ from django.conf import settings
 User = get_user_model()
 
 PROMOTION_TRUST_THRESHOLD = 70
-EVENT_HOST_TRUST_THRESHOLD = 65
 OWNER_VERIFICATION_SAMPLES = [
     {
         "label": "Acme Innovations",
@@ -57,6 +70,7 @@ OWNER_VERIFICATION_SAMPLES = [
         "claimant_name": "Fake Hacker Name",
     },
 ]
+
 
 def signup_view(request):
     if request.method == 'POST':
@@ -146,18 +160,6 @@ def process_liveness(request):
 def home(request):
     profile, _ = Profile.objects.get_or_create(user=request.user, defaults={"name": request.user.full_name or request.user.username})
 
-    if request.method == "POST" and request.POST.get("form_type") == "profile":
-        profile.name = request.POST.get("name", "")
-        profile.headline = request.POST.get("headline", "")
-        profile.location = request.POST.get("location", "")
-        profile.skills = request.POST.get("skills", "")
-        profile.company = request.POST.get("company", "")
-        profile.bio = request.POST.get("bio", "")
-        profile.save()
-        update_trust_score(request.user)
-        messages.success(request, "Profile updated.")
-        return redirect("home")
-
     if request.method == "POST" and request.POST.get("form_type") == "post":
         content = request.POST.get("content", "").strip()
         if content:
@@ -182,6 +184,8 @@ def home(request):
         "sent_connections": sent_connections,
         "pending_requests": pending_requests,
         "accepted_connections": accepted_connections,
+        "can_start_fundraiser": profile.is_verified_user,
+        "is_event_organizer": profile.is_event_organizer,
     }
     return render(request, "myapp/home.html", context)
 
@@ -267,9 +271,15 @@ def apply_job(request, job_id):
 
 @login_required
 def event_list(request):
+    profile, _ = Profile.objects.get_or_create(
+        user=request.user,
+        defaults={"name": request.user.full_name or request.user.username},
+    )
     if request.method == "POST":
-        if not request.user.is_verified_human or request.user.trust_score < EVENT_HOST_TRUST_THRESHOLD:
-            return HttpResponseForbidden("Human verification and trust score 65+ required to host events.")
+        if not profile.is_verified_user:
+            return HttpResponseForbidden(
+                "Become a verified user (employee, owner, or organiser path on Profile → Upgrade) to host events."
+            )
 
         Event.objects.create(
             title=request.POST.get("title", ""),
@@ -285,7 +295,16 @@ def event_list(request):
         return redirect("events")
 
     events = Event.objects.select_related("created_by")
-    return render(request, "myapp/events.html", {"events": events, "event_threshold": EVENT_HOST_TRUST_THRESHOLD})
+    return render(
+        request,
+        "myapp/events.html",
+        {
+            "events": events,
+            "profile": profile,
+            "can_host_events": profile.is_verified_user,
+            "is_event_organizer": profile.is_event_organizer,
+        },
+    )
 
 
 @login_required
@@ -414,6 +433,326 @@ def owner_verification_lab(request):
         "results": results,
     }
     return render(request, "myapp/owner_verification.html", context)
+
+
+@login_required
+def start_fundraiser(request):
+    profile, _ = Profile.objects.get_or_create(
+        user=request.user,
+        defaults={"name": request.user.full_name or request.user.username},
+    )
+    if not profile.is_verified_user:
+        return HttpResponseForbidden(
+            "Fundraisers are available to verified users only. Complete an upgrade path under Profile → Upgrade rank."
+        )
+
+    if request.method == "POST":
+        title = request.POST.get("title", "").strip()
+        target_amount = request.POST.get("target_amount", "").strip()
+        pitch = request.POST.get("pitch", "").strip()
+        if title and target_amount and pitch:
+            messages.success(
+                request,
+                f"Fundraiser '{title}' submitted (demo mode). Investors can now review this campaign.",
+            )
+            return redirect("start_fundraiser")
+        messages.error(request, "Please fill title, target amount, and pitch.")
+
+    return render(request, "myapp/start_fundraiser.html", {"profile": profile})
+
+
+@login_required
+def organizer_hub(request):
+    profile, _ = Profile.objects.get_or_create(
+        user=request.user,
+        defaults={"name": request.user.full_name or request.user.username},
+    )
+    organizer = getattr(request.user, "event_organizer_profile", None)
+    return render(
+        request,
+        "myapp/organizer_hub.html",
+        {"profile": profile, "organizer": organizer},
+    )
+
+
+def _sandbox_api_authorized(request):
+    expected = (getattr(settings, "SANDBOX_API_KEY", "") or "").strip()
+    if not expected:
+        return True
+    got = request.headers.get("X-Sandbox-Key", "").strip()
+    if len(got) != len(expected):
+        return False
+    return secrets.compare_digest(got, expected)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def sandbox_verify_identity_api(request):
+    """
+    Sandbox JSON API: checks name / claim hint to reduce obviously fake signups (demo rules).
+    Send header X-Sandbox-Key when SANDBOX_API_KEY is set in settings.
+    """
+    if not _sandbox_api_authorized(request):
+        return JsonResponse({"verified": False, "error": "invalid_sandbox_key"}, status=401)
+    try:
+        payload = json.loads(request.body.decode() or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"verified": False, "error": "invalid_json"}, status=400)
+    claim_type = (payload.get("claim_type") or "employee").strip().lower()
+    full_name = (payload.get("full_name") or "").strip()
+    hint = (payload.get("document_hint") or "").strip()
+    if not full_name:
+        return JsonResponse({"verified": False, "error": "full_name_required"}, status=400)
+    result = verify_identity_sandbox(
+        claim_type=claim_type, full_name=full_name, document_hint=hint
+    )
+    return JsonResponse(
+        {
+            "verified": result["verified"],
+            "reference": result.get("reference", ""),
+            "reason": result.get("reason", ""),
+        }
+    )
+
+
+def _send_employee_affiliation_email(request, affiliation):
+    approve = request.build_absolute_uri(
+        reverse(
+            "employee_affiliation_action",
+            kwargs={"token": str(affiliation.token), "action": "approve"},
+        )
+    )
+    reject = request.build_absolute_uri(
+        reverse(
+            "employee_affiliation_action",
+            kwargs={"token": str(affiliation.token), "action": "reject"},
+        )
+    )
+    body = (
+        f"A user ({affiliation.user.username}) claims to be an employee of {affiliation.company_name}.\n\n"
+        f"If this is legitimate, open APPROVE (they will get a green badge and verified-user access):\n{approve}\n\n"
+        f"If this person is not with your organisation, open REJECT:\n{reject}\n"
+    )
+    send_mail(
+        subject=f"[Baadme Sochenge] Employment check for {affiliation.user.username}",
+        message=body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[affiliation.company_email],
+        fail_silently=False,
+    )
+
+
+def employee_affiliation_action(request, token, action):
+    aff = get_object_or_404(
+        EmployeeAffiliationRequest,
+        token=token,
+        status=EmployeeAffiliationRequest.STATUS_PENDING,
+    )
+    profile, _ = Profile.objects.get_or_create(
+        user=aff.user,
+        defaults={"name": aff.user.full_name or aff.user.username},
+    )
+    if action == "approve":
+        aff.status = EmployeeAffiliationRequest.STATUS_APPROVED
+        aff.save(update_fields=["status"])
+        profile.employee_company_confirmed = True
+        profile.is_verified_user = True
+        profile.is_company_email_verified = True
+        profile.save(
+            update_fields=[
+                "employee_company_confirmed",
+                "is_verified_user",
+                "is_company_email_verified",
+            ]
+        )
+        update_trust_score(aff.user)
+        return render(
+            request,
+            "myapp/affiliation_result.html",
+            {"title": "Approved", "message": "This employee is now verified on the platform."},
+        )
+    if action == "reject":
+        aff.status = EmployeeAffiliationRequest.STATUS_REJECTED
+        aff.save(update_fields=["status"])
+        profile.employee_company_confirmed = False
+        profile.is_verified_user = False
+        profile.save(update_fields=["employee_company_confirmed", "is_verified_user"])
+        update_trust_score(aff.user)
+        return render(
+            request,
+            "myapp/affiliation_result.html",
+            {
+                "title": "Rejected",
+                "message": "The affiliation request was rejected. The user stays on yellow/blue tier until trust improves or they re-apply.",
+            },
+        )
+    return HttpResponseForbidden("Invalid action.")
+
+
+@login_required
+def account_profile(request):
+    profile, _ = Profile.objects.get_or_create(
+        user=request.user,
+        defaults={"name": request.user.full_name or request.user.username},
+    )
+    if request.method == "POST":
+        profile.name = request.POST.get("name", "")
+        profile.headline = request.POST.get("headline", "")
+        profile.location = request.POST.get("location", "")
+        profile.skills = request.POST.get("skills", "")
+        profile.company = request.POST.get("company", "")
+        profile.bio = request.POST.get("bio", "")
+        profile.save()
+        update_trust_score(request.user)
+        messages.success(request, "Profile saved.")
+        return redirect("account_profile")
+
+    pending_aff = (
+        EmployeeAffiliationRequest.objects.filter(
+            user=request.user, status=EmployeeAffiliationRequest.STATUS_PENDING
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    return render(
+        request,
+        "myapp/account_profile.html",
+        {
+            "profile": profile,
+            "pending_affiliation": pending_aff,
+        },
+    )
+
+
+@login_required
+def profile_rank_upgrade(request):
+    profile, _ = Profile.objects.get_or_create(
+        user=request.user,
+        defaults={"name": request.user.full_name or request.user.username},
+    )
+    if request.method == "POST":
+        claim = (request.POST.get("claim_type") or "").strip().lower()
+        display_name = (profile.name or request.user.full_name or request.user.username).strip()
+
+        if claim == CLAIM_EMPLOYEE:
+            aadhar_hint = (request.POST.get("emp_aadhar_hint") or "").strip()
+            company_name = request.POST.get("emp_company_name", "").strip()
+            company_email = request.POST.get("emp_company_email", "").strip()
+            emp_doc = request.FILES.get("emp_gov_id")
+            if not company_name or not company_email or not emp_doc:
+                messages.error(request, "Employee path requires company name, company email, and Aadhaar / ID upload.")
+                return redirect("profile_rank_upgrade")
+            sb = verify_identity_sandbox(
+                claim_type="employee",
+                full_name=display_name,
+                document_hint=aadhar_hint,
+            )
+            if not sb["verified"]:
+                messages.error(request, sb.get("reason") or "Sandbox identity check failed.")
+                return redirect("profile_rank_upgrade")
+            profile.company = company_name
+            profile.company_email = company_email
+            profile.gov_id = emp_doc
+            profile.claim_type = CLAIM_EMPLOYEE
+            profile.is_verified_user = False
+            profile.employee_company_confirmed = False
+            mark_profile_sandbox_time(profile)
+            profile.sandbox_reference = sb.get("reference", "")
+            profile.save()
+            aff = EmployeeAffiliationRequest.objects.create(
+                user=request.user,
+                company_name=company_name,
+                company_email=company_email,
+            )
+            _send_employee_affiliation_email(request, aff)
+            messages.success(
+                request,
+                "Sandbox check passed. We emailed your company contact — when they approve the link, you become a verified user (green).",
+            )
+            return redirect("account_profile")
+
+        if claim == CLAIM_OWNER:
+            cin = request.POST.get("owner_cin", "").strip().upper()
+            gstin = request.POST.get("owner_gstin", "").strip().upper()
+            company_name = request.POST.get("owner_company_name", "").strip()
+            if not cin or not gstin or not company_name:
+                messages.error(request, "Owner path requires company name, CIN, and GSTIN.")
+                return redirect("profile_rank_upgrade")
+            company = get_company_by_cin(cin) if cin else None
+            tax = get_tax_by_gstin(gstin) if gstin else None
+            ownership = run_ownership_verification(
+                cin=cin,
+                gstin=gstin,
+                company_name=company_name,
+                claimant_name=display_name,
+                claimant_id=str(request.user.id),
+                apply_realism=False,
+            )
+            profile.claim_type = CLAIM_OWNER
+            profile.owner_cin = cin
+            profile.owner_gstin = gstin
+            profile.company = company_name or profile.company
+            if request.FILES.get("company_docs"):
+                profile.company_docs = request.FILES["company_docs"]
+            if request.POST.get("is_boss"):
+                profile.is_boss = True
+            should_upgrade = (
+                ownership.get("success")
+                and ownership.get("decision") == "Verified"
+                and int(ownership.get("trust_score") or 0) >= 80
+                and bool(company)
+                and bool(tax)
+            )
+            if should_upgrade:
+                profile.is_company_verified = True
+                profile.is_verified_user = True
+                messages.success(
+                    request,
+                    "Company records and ownership check passed. You are now a verified user (fundraiser + events).",
+                )
+            else:
+                profile.is_verified_user = False
+                messages.warning(
+                    request,
+                    f"Ownership decision: {ownership.get('decision')!r}. "
+                    "Documents may still be reviewed manually; verified-user access was not granted.",
+                )
+            profile.save()
+            update_trust_score(request.user)
+            return redirect("account_profile")
+
+        if claim == CLAIM_ORGANISER:
+            org_hint = (request.POST.get("org_document_hint") or "").strip()
+            org_doc = request.FILES.get("org_gov_id")
+            if not org_doc:
+                messages.error(request, "Organiser path requires a government ID upload.")
+                return redirect("profile_rank_upgrade")
+            sb = verify_identity_sandbox(
+                claim_type="organiser",
+                full_name=display_name,
+                document_hint=org_hint,
+            )
+            if not sb["verified"]:
+                messages.error(request, sb.get("reason") or "Sandbox identity check failed.")
+                return redirect("profile_rank_upgrade")
+            profile.gov_id = org_doc
+            profile.claim_type = CLAIM_ORGANISER
+            profile.is_gov_id_verified = True
+            profile.is_verified_user = True
+            mark_profile_sandbox_time(profile)
+            profile.sandbox_reference = sb.get("reference", "")
+            profile.save()
+            update_trust_score(request.user)
+            messages.success(
+                request,
+                "Government ID recorded and sandbox verification passed. You are a verified user and can post events.",
+            )
+            return redirect("account_profile")
+
+        messages.error(request, "Choose a valid upgrade path.")
+        return redirect("profile_rank_upgrade")
+
+    return render(request, "myapp/profile_rank_upgrade.html", {"profile": profile})
 
 
 @login_required

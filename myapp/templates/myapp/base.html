@@ -25,9 +25,18 @@
     <div class="topbar">
         <div>
             <a href="{% url 'home' %}">Network</a>
+            {% if request.user.is_authenticated %}
+                <a href="{% url 'account_profile' %}">Profile</a>
+            {% endif %}
             <a href="{% url 'opportunities' %}">Opportunities</a>
             <a href="{% url 'events' %}">Events</a>
             <a href="{% url 'promotions' %}">Promotion</a>
+            {% if request.user.is_authenticated %}
+                {% if request.user.profile.is_verified_user %}
+                    <a href="{% url 'start_fundraiser' %}">Fundraiser</a>
+                    <a href="{% url 'organizer_hub' %}">Organizer</a>
+                {% endif %}
+            {% endif %}
             {% if request.user.is_authenticated and request.user.role == "company" and request.user.profile.is_boss %}
                 <a href="{% url 'owner_verification_lab' %}">Owner Verify</a>
             {% endif %}

@@ -1,0 +1,75 @@
+{% extends "myapp/base.html" %}
+{% load trust_tags %}
+{% block title %}Upgrade verification rank{% endblock %}
+{% block content %}
+<div class="layout" style="grid-template-columns: minmax(520px, 720px);">
+    <div class="panel">
+        <h2>Upgrade verification rank</h2>
+        <p class="muted">
+            <strong>Disclaimer:</strong> Default accounts work without any document upload.
+            Use this page only if you want to become a <strong>verified user</strong> (fundraise + host events).
+            Documents may be checked automatically where APIs exist, or reviewed manually by admins.
+        </p>
+        <p class="muted">Current tier: {{ profile.trust_tier|trust_tier_emoji }} {{ profile.trust_tier|capfirst }}
+            {% if profile.is_verified_user %}· You are already a verified user.{% endif %}
+        </p>
+
+        <form method="POST" enctype="multipart/form-data" id="upgrade_form">
+            {% csrf_token %}
+            <label for="claim_type">I am upgrading as</label>
+            <select name="claim_type" id="claim_type" required onchange="window.__toggleClaim(this.value)">
+                <option value="">Select…</option>
+                <option value="employee">Employee (company email + Aadhaar / ID)</option>
+                <option value="owner">Owner (company name + CIN + GSTIN; MCA sandbox)</option>
+                <option value="organiser">Event organiser (government ID + sandbox check)</option>
+            </select>
+
+            <div id="panel_employee" style="display:none; margin-top:12px;">
+                <h4>Employee</h4>
+                <p class="muted">We run a sandbox identity check, then email your company contact. When they approve the link, you get a green badge and verified-user access.</p>
+                <input name="emp_company_name" placeholder="Company name (legal or brand)">
+                <input type="email" name="emp_company_email" placeholder="Company HR / admin email">
+                <input name="emp_aadhar_hint" placeholder="Optional: ID last 4 digits (demo hint)">
+                <label>Aadhaar / government ID file</label>
+                <input type="file" name="emp_gov_id">
+            </div>
+
+            <div id="panel_owner" style="display:none; margin-top:12px;">
+                <h4>Owner</h4>
+                <p class="muted">CIN and GSTIN are checked against the seeded MCA-style verification API (same logic as Owner Verification Lab).</p>
+                <input name="owner_company_name" placeholder="Company name as registered">
+                <input name="owner_cin" placeholder="CIN">
+                <input name="owner_gstin" placeholder="GSTIN">
+                <label><input type="checkbox" name="is_boss" value="1"> I am claiming company leadership (boss)</label>
+                <label>Optional: company / board documents</label>
+                <input type="file" name="company_docs">
+            </div>
+
+            <div id="panel_organiser" style="display:none; margin-top:12px;">
+                <h4>Event organiser</h4>
+                <p class="muted">Upload a government ID. We call the sandbox API to reduce obviously fake submissions; admins can still review files.</p>
+                <input name="org_document_hint" placeholder="Optional: document hint for sandbox">
+                <label>Government ID file</label>
+                <input type="file" name="org_gov_id">
+            </div>
+
+            <button type="submit" class="btn" style="margin-top:16px;">Submit upgrade</button>
+        </form>
+        <p class="muted" style="margin-top:16px;">
+            Sandbox HTTP API (for integrations): <code>POST {% url 'sandbox_verify_identity' %}</code>
+            with JSON <code>{"claim_type":"employee","full_name":"…","document_hint":"1234"}</code>
+            and optional header <code>X-Sandbox-Key</code> when <code>SANDBOX_API_KEY</code> is set.
+        </p>
+        <p><a href="{% url 'account_profile' %}">← My profile</a></p>
+    </div>
+</div>
+<script>
+window.__toggleClaim = function(v) {
+  ['employee','owner','organiser'].forEach(function(k) {
+    var el = document.getElementById('panel_' + k);
+    if (el) el.style.display = (k === v) ? 'block' : 'none';
+  });
+};
+(function(){ var s = document.getElementById('claim_type'); if (s && s.value) window.__toggleClaim(s.value); })();
+</script>
+{% endblock %}

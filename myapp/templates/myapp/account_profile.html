@@ -1,0 +1,46 @@
+{% extends "myapp/base.html" %}
+{% load trust_tags %}
+{% block title %}My profile{% endblock %}
+{% block content %}
+<div class="layout" style="grid-template-columns: minmax(320px, 380px) minmax(400px, 1fr);">
+    <div class="panel">
+        <h2>My profile</h2>
+        <p class="muted">
+            <strong>Disclaimer:</strong> You do not need to upload anything to use the network as a normal user.
+            Rank upgrades and document uploads are optional and only needed if you want verified-user benefits (fundraising and hosting events).
+        </p>
+        <p class="muted">
+            <span class="trust-status" title="Trust tier: {{ profile.trust_tier|capfirst }}">{{ profile.trust_tier|trust_tier_emoji }}</span>
+            Tier {{ profile.trust_tier|capfirst }} · Trust score {{ request.user.trust_score }}
+            {% if profile.is_verified_user %}· <strong>Verified user</strong>{% endif %}
+        </p>
+        {% if pending_affiliation %}
+            <p class="muted">Pending employer confirmation email sent to {{ pending_affiliation.company_email }}.</p>
+        {% endif %}
+        <label for="profile_nav">Profile menu</label>
+        <select id="profile_nav" style="width:100%; margin-bottom:12px;" onchange="if(this.value) location=this.value;">
+            <option value="">Choose…</option>
+            <option value="{% url 'account_profile' %}#edit">Edit profile (this page)</option>
+            <option value="{% url 'profile_rank_upgrade' %}">Upgrade rank / verification</option>
+        </select>
+        <p><a href="{% url 'home' %}"><button type="button" class="btn btn-light">Back to feed</button></a></p>
+    </div>
+    <div class="panel" id="edit">
+        <h3>Edit profile</h3>
+        <form method="POST">
+            {% csrf_token %}
+            <input name="name" value="{{ profile.name }}" placeholder="Name" required>
+            <input name="headline" value="{{ profile.headline }}" placeholder="Headline" required>
+            <input name="location" value="{{ profile.location }}" placeholder="Location" required>
+            <input name="skills" value="{{ profile.skills }}" placeholder="Skills (comma separated)" required>
+            <input name="company" value="{{ profile.company }}" placeholder="Company / Organization">
+            <textarea name="bio" placeholder="Bio">{{ profile.bio }}</textarea>
+            <button class="btn" type="submit">Save</button>
+        </form>
+        <p class="muted" style="margin-top:14px;">
+            Claim type: <strong>{{ profile.get_claim_type_display }}</strong>
+            {% if profile.sandbox_reference %}· Sandbox ref: {{ profile.sandbox_reference }}{% endif %}
+        </p>
+    </div>
+</div>
+{% endblock %}

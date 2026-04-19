@@ -5,25 +5,32 @@
 <div class="layout">
     <div>
         <div class="panel">
-            <h3>Your Profile</h3>
-            <p class="muted">Complete your profile and liveness verification to unlock advanced modules.</p>
-            <form method="POST">
-                {% csrf_token %}
-                <input type="hidden" name="form_type" value="profile">
-                <input name="name" value="{{ profile.name }}" placeholder="Name" required>
-                <input name="headline" value="{{ profile.headline }}" placeholder="Headline" required>
-                <input name="location" value="{{ profile.location }}" placeholder="Location" required>
-                <input name="skills" value="{{ profile.skills }}" placeholder="Skills (comma separated)" required>
-                <input name="company" value="{{ profile.company }}" placeholder="Company / Organization">
-                <textarea name="bio" placeholder="Bio">{{ profile.bio }}</textarea>
-                <button class="btn" type="submit">Save Profile</button>
-            </form>
-            <p class="muted"><span class="trust-status" title="Trust tier: {{ profile.trust_tier|capfirst }}">{{ profile.trust_tier|trust_tier_emoji }}</span> · Score {{ request.user.trust_score }} · Connections: {{ accepted_connections }} · Face verified: {{ request.user.is_verified_human }}</p>
+            <h3>My profile</h3>
+            <p class="muted">
+                <span class="trust-status" title="Trust tier: {{ profile.trust_tier|capfirst }}">{{ profile.trust_tier|trust_tier_emoji }}</span>
+                · Score {{ request.user.trust_score }} · Connections: {{ accepted_connections }}
+                · Face: {% if request.user.is_verified_human %}yes{% else %}no{% endif %}
+                {% if profile.is_verified_user %}· <strong>Verified user</strong>{% endif %}
+            </p>
+            <label for="home_profile_menu">Profile</label>
+            <select id="home_profile_menu" style="width:100%; margin-bottom:10px;" onchange="if(this.value) location=this.value;">
+                <option value="">Open…</option>
+                <option value="{% url 'account_profile' %}">View / edit profile</option>
+                <option value="{% url 'profile_rank_upgrade' %}">Upgrade rank (optional documents)</option>
+            </select>
+            <p class="muted"><strong>Disclaimer:</strong> You never need to upload documents for normal use. Upgrades are only if you want verified-user access (fundraise + host events).</p>
             {% if not request.user.is_verified_human %}
                 <a href="{% url 'start_verification' %}"><button class="btn btn-light">Complete Face Verification</button></a>
             {% endif %}
             {% if request.user.role == "company" and profile.is_boss %}
-                <a href="{% url 'owner_verification_lab' %}"><button class="btn btn-light">Open Owner Verification Lab</button></a>
+                <a href="{% url 'owner_verification_lab' %}"><button class="btn btn-light">Owner Verification Lab</button></a>
+            {% endif %}
+            {% if can_start_fundraiser %}
+                <a href="{% url 'start_fundraiser' %}"><button class="btn">Start Fundraiser</button></a>
+                <a href="{% url 'organizer_hub' %}"><button class="btn btn-light">Organizer hub</button></a>
+            {% else %}
+                <button class="btn btn-light" disabled title="Verified user required">Fundraiser / host events (locked)</button>
+                <p class="muted">Become a <strong>verified user</strong> via Profile → Upgrade (employee, owner, or organiser path).</p>
             {% endif %}
         </div>
     </div>

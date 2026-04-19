@@ -23,4 +23,18 @@ urlpatterns =[
     path('events/join/<int:event_id>/', views.join_event, name='join_event'),
     path('promotions/', views.promotions, name='promotions'),
     path("owner-verification/", views.owner_verification_lab, name="owner_verification_lab"),
+    path("fundraiser/start/", views.start_fundraiser, name="start_fundraiser"),
+    path("organizer/", views.organizer_hub, name="organizer_hub"),
+    path("profile/", views.account_profile, name="account_profile"),
+    path("profile/upgrade/", views.profile_rank_upgrade, name="profile_rank_upgrade"),
+    path(
+        "verify-employment/<uuid:token>/<str:action>/",
+        views.employee_affiliation_action,
+        name="employee_affiliation_action",
+    ),
+    path(
+        "api/sandbox/v1/verify-identity/",
+        views.sandbox_verify_identity_api,
+        name="sandbox_verify_identity",
+    ),
 ]
