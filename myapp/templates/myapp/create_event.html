@@ -1,11 +1,24 @@
-<h2>Create Event</h2>
-
-<form method="POST" enctype="multipart/form-data">
-    {% csrf_token %}
-    <input name="title" placeholder="Title"><br>
-    <textarea name="description"></textarea><br>
-    <input type="datetime-local" name="date"><br>
-    <input name="location"><br>
-    <input type="file" name="banner"><br>
-    <button type="submit">Create</button>
-</form>
+{% extends "myapp/base.html" %}
+{% block title %}Create event{% endblock %}
+{% block content %}
+<div class="layout layout--narrow">
+    <div class="panel">
+        <h2>Create event</h2>
+        <p class="muted">If this form is wired to a view, field names must match the server. Prefer hosting from the <a href="{% url 'events' %}">Events</a> page when available.</p>
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <label for="ce_title">Title</label>
+            <input id="ce_title" name="title" placeholder="Title" required>
+            <label for="ce_description">Description</label>
+            <textarea id="ce_description" name="description" placeholder="Description"></textarea>
+            <label for="ce_date">Date and time</label>
+            <input id="ce_date" type="datetime-local" name="date">
+            <label for="ce_location">Location</label>
+            <input id="ce_location" name="location" placeholder="Location">
+            <label for="ce_banner">Banner image</label>
+            <input id="ce_banner" type="file" name="banner" accept="image/*">
+            <button type="submit" class="btn mt-md">Create</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

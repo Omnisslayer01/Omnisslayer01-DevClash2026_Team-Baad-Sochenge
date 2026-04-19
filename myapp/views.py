@@ -101,13 +101,18 @@ def signup_view(request):
 
 def login_view(request):
     if request.method == 'POST':
-        username = request.POST.get('username')
+        identifier = (request.POST.get('username') or '').strip()
         password = request.POST.get('password')
+        username = identifier
+        if '@' in identifier:
+            match = User.objects.filter(email__iexact=identifier).first()
+            if match:
+                username = match.username
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
             return redirect('home')
-        messages.error(request, "Invalid credentials.")
+        messages.error(request, 'Invalid email/username or password.')
 
     return render(request, 'myapp/login.html')
 

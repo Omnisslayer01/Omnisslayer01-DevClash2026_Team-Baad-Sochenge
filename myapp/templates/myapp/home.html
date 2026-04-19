@@ -1,8 +1,8 @@
 {% extends "myapp/base.html" %}
 {% load trust_tags %}
-{% block title %}Network Feed{% endblock %}
+{% block title %}Network feed{% endblock %}
 {% block content %}
-<div class="layout">
+<div class="layout layout--feed">
     <div>
         <div class="panel">
             <h3>My profile</h3>
@@ -13,35 +13,36 @@
                 {% if profile.is_verified_user %}· <strong>Verified user</strong>{% endif %}
             </p>
             <label for="home_profile_menu">Profile</label>
-            <select id="home_profile_menu" style="width:100%; margin-bottom:10px;" onchange="if(this.value) location=this.value;">
+            <select id="home_profile_menu" class="w-100" onchange="if(this.value) location=this.value;">
                 <option value="">Open…</option>
                 <option value="{% url 'account_profile' %}">View / edit profile</option>
                 <option value="{% url 'profile_rank_upgrade' %}">Upgrade rank (optional documents)</option>
             </select>
             <p class="muted"><strong>Disclaimer:</strong> You never need to upload documents for normal use. Upgrades are only if you want verified-user access (fundraise + host events).</p>
             {% if not request.user.is_verified_human %}
-                <a href="{% url 'start_verification' %}"><button class="btn btn-light">Complete Face Verification</button></a>
+                <a href="{% url 'start_verification' %}" class="btn btn--secondary w-100 mt-md">Complete face verification</a>
             {% endif %}
             {% if request.user.role == "company" and profile.is_boss %}
-                <a href="{% url 'owner_verification_lab' %}"><button class="btn btn-light">Owner Verification Lab</button></a>
+                <a href="{% url 'owner_verification_lab' %}" class="btn btn--secondary w-100 mt-md">Owner verification lab</a>
             {% endif %}
             {% if can_start_fundraiser %}
-                <a href="{% url 'start_fundraiser' %}"><button class="btn">Start Fundraiser</button></a>
-                <a href="{% url 'organizer_hub' %}"><button class="btn btn-light">Organizer hub</button></a>
+                <a href="{% url 'start_fundraiser' %}" class="btn w-100 mt-md">Start fundraiser</a>
+                <a href="{% url 'organizer_hub' %}" class="btn btn--secondary w-100 mt-md">Organizer hub</a>
             {% else %}
-                <button class="btn btn-light" disabled title="Verified user required">Fundraiser / host events (locked)</button>
+                <button type="button" class="btn btn--secondary w-100 mt-md" disabled title="Verified user required">Fundraiser / host events (locked)</button>
                 <p class="muted">Become a <strong>verified user</strong> via Profile → Upgrade (employee, owner, or organiser path).</p>
             {% endif %}
         </div>
     </div>
     <div>
         <div class="panel">
-            <h3>Create Post</h3>
-            <form method="POST" enctype="multipart/form-data">
+            <h3>Create post</h3>
+            <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 <input type="hidden" name="form_type" value="post">
-                <textarea name="content" placeholder="Share an update..." required></textarea>
-                <input type="file" name="image">
+                <textarea name="content" placeholder="Share an update…" required></textarea>
+                <label for="post_image">Image (optional)</label>
+                <input id="post_image" type="file" name="image">
                 <button class="btn" type="submit">Post</button>
             </form>
         </div>
@@ -49,21 +50,21 @@
             <div class="panel">
                 <strong>{{ post.author.username }}</strong>
                 {% if post.author.role == "company" and post.author.is_verified_human %}
-                    <span class="muted">Verified Company</span>
+                    <span class="muted">Verified company</span>
                 {% endif %}
                 <p class="muted">{{ post.created_at }}</p>
                 <p>{{ post.content }}</p>
                 {% if post.image %}
-                    <img src="{{ post.image.url }}" style="max-width: 100%; border-radius: 8px;" alt="post image">
+                    <p><img src="{{ post.image.url }}" class="img-fluid" alt="Post image"></p>
                 {% endif %}
-                <div>
-                    <a href="{% url 'like_post' post.id %}"><button class="btn btn-light">Like ({{ post.likes.count }})</button></a>
-                    <a href="{% url 'share_post' post.id %}"><button class="btn btn-light">Share ({{ post.share_count }})</button></a>
+                <div class="post-actions">
+                    <a href="{% url 'like_post' post.id %}" class="btn btn--secondary">Like ({{ post.likes.count }})</a>
+                    <a href="{% url 'share_post' post.id %}" class="btn btn--secondary">Share ({{ post.share_count }})</a>
                 </div>
-                <form method="POST" action="{% url 'add_comment' post.id %}">
+                <form method="post" action="{% url 'add_comment' post.id %}">
                     {% csrf_token %}
                     <input name="content" placeholder="Write a comment">
-                    <button class="btn btn-light" type="submit">Comment</button>
+                    <button class="btn btn--secondary" type="submit">Comment</button>
                 </form>
                 {% for comment in post.comments.all|slice:":3" %}
                     <p class="muted"><strong>{{ comment.author.username }}</strong>: {{ comment.content }}</p>
@@ -75,15 +76,15 @@
     </div>
     <div>
         <div class="panel">
-            <h3>People You May Connect</h3>
+            <h3>People you may connect</h3>
             {% for person in suggested_users %}
-                <div style="margin-bottom: 10px;">
+                <div class="list-row">
                     <strong>{{ person.username }}</strong>
                     {% if person.role == "company" and person.is_verified_human %}
-                        <span class="muted">Verified Company</span>
+                        <span class="muted">Verified company</span>
                     {% endif %}
                     {% if person.id not in sent_connections %}
-                        <a href="{% url 'send_connection_request' person.id %}"><button class="btn btn-light">Connect</button></a>
+                        <a href="{% url 'send_connection_request' person.id %}" class="btn btn--secondary">Connect</a>
                     {% else %}
                         <span class="muted">Requested</span>
                     {% endif %}
@@ -93,12 +94,14 @@
             {% endfor %}
         </div>
         <div class="panel">
-            <h3>Incoming Requests</h3>
+            <h3>Incoming requests</h3>
             {% for req in pending_requests %}
-                <div style="margin-bottom: 10px;">
+                <div class="list-row">
                     <strong>{{ req.user_from.username }}</strong>
-                    <a href="{% url 'respond_connection_request' req.id 'accept' %}"><button class="btn btn-light">Accept</button></a>
-                    <a href="{% url 'respond_connection_request' req.id 'reject' %}"><button class="btn btn-light">Reject</button></a>
+                    <div class="post-actions">
+                        <a href="{% url 'respond_connection_request' req.id 'accept' %}" class="btn btn--secondary">Accept</a>
+                        <a href="{% url 'respond_connection_request' req.id 'reject' %}" class="btn btn--secondary">Reject</a>
+                    </div>
                 </div>
             {% empty %}
                 <p class="muted">No pending requests.</p>

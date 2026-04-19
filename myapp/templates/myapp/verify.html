@@ -1,278 +1,259 @@
-<!-- templates/myapp/verify.html — MediaPipe blink + head-turn liveness + optional Luxand -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Liveness Verification</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-    <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f4f4f9; padding: 2rem; }
-        .camera-container { background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; max-width: 520px; width: 100%; }
-        video { width: 100%; max-width: 400px; border-radius: 4px; background: #000; transform: scaleX(-1); }
-        canvas { display: none; }
-        button { margin-top: 1rem; padding: 10px 20px; background: #0056b3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; width: 100%; }
-        button:hover { background: #004494; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        #status { margin-top: 1rem; font-weight: bold; color: #333; }
-        .hint { font-size: 0.9rem; color: #555; margin-top: 0.5rem; line-height: 1.4; }
-        .timer { font-size: 1.1rem; color: #c0392b; margin: 0.5rem 0; }
-        .blink-row { font-size: 1.1rem; margin: 0.4rem 0; }
-    </style>
-</head>
-<body>
-
-    <div class="camera-container">
+{% extends "myapp/base.html" %}
+{% block title %}Face verification{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+{% endblock %}
+{% block content %}
+<div class="verify-page">
+    <div class="verify-card">
+        {% csrf_token %}
         <h2>Face verification</h2>
-        <p>Complete both challenges within <strong id="windowLabel">60</strong> seconds, then capture.</p>
-        <p class="timer" id="timerText">Time left: 60s</p>
-        <p class="blink-row">Blinks: <span id="blinkCount">0</span> / <span id="targetSpan">—</span></p>
-        <p class="blink-row">Head turns (left → right each): <span id="headCount">0</span> / <span id="headTargetSpan">—</span></p>
-        <p class="hint" id="livenessHint">Starting camera…</p>
+        <p class="verify-hint">Complete both challenges within <strong id="windowLabel">60</strong> seconds, then capture.</p>
+        <p class="verify-timer" id="timerText">Time left: 60s</p>
+        <p class="verify-row">Blinks: <span id="blinkCount">0</span> / <span id="targetSpan">—</span></p>
+        <p class="verify-row">Head turns (left → right each): <span id="headCount">0</span> / <span id="headTargetSpan">—</span></p>
+        <p class="verify-hint" id="livenessHint">Starting camera…</p>
 
-        <video id="video" autoplay playsinline></video>
+        <video id="video" class="verify-video" autoplay playsinline></video>
         <canvas id="canvas"></canvas>
 
-        <button id="captureBtn" disabled>Verify my face</button>
-        <button id="fallbackBtn" type="button" style="background:#888;font-size:0.85rem;">Camera/AI unavailable — mark challenge done (demo only)</button>
-        <p id="status"></p>
+        <button type="button" class="btn w-100 mt-md" id="captureBtn" disabled>Verify my face</button>
+        <button type="button" class="btn btn--muted w-100 mt-md" id="fallbackBtn">Camera unavailable — mark challenge done (demo only)</button>
+        <p id="status" class="status-banner" role="status" aria-live="polite"></p>
     </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+(function () {
+    var MIN_BLINKS = 2;
+    var MAX_BLINKS = 6;
+    var targetBlinks = Math.floor(Math.random() * (MAX_BLINKS - MIN_BLINKS + 1)) + MIN_BLINKS;
+    var MIN_HEAD_CYCLES = 1;
+    var MAX_HEAD_CYCLES = 3;
+    var targetHeadCycles = Math.floor(Math.random() * (MAX_HEAD_CYCLES - MIN_HEAD_CYCLES + 1)) + MIN_HEAD_CYCLES;
+    var TIME_LIMIT_SEC = 60;
 
-    <form id="csrfForm">{% csrf_token %}</form>
+    var video = document.getElementById('video');
+    var canvas = document.getElementById('canvas');
+    var captureBtn = document.getElementById('captureBtn');
+    var fallbackBtn = document.getElementById('fallbackBtn');
+    var statusText = document.getElementById('status');
+    var blinkCountEl = document.getElementById('blinkCount');
+    var targetSpan = document.getElementById('targetSpan');
+    var headCountEl = document.getElementById('headCount');
+    var headTargetSpan = document.getElementById('headTargetSpan');
+    var timerText = document.getElementById('timerText');
+    var livenessHint = document.getElementById('livenessHint');
+    var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
-    <script>
-        const MIN_BLINKS = 2;
-        const MAX_BLINKS = 6;
-        const targetBlinks = Math.floor(Math.random() * (MAX_BLINKS - MIN_BLINKS + 1)) + MIN_BLINKS;
+    targetSpan.textContent = targetBlinks;
+    headTargetSpan.textContent = targetHeadCycles;
+    document.getElementById('windowLabel').textContent = TIME_LIMIT_SEC;
 
-        /** Full left→right passes required (each pass = look left, then look right). */
-        const MIN_HEAD_CYCLES = 1;
-        const MAX_HEAD_CYCLES = 3;
-        const targetHeadCycles = Math.floor(Math.random() * (MAX_HEAD_CYCLES - MIN_HEAD_CYCLES + 1)) + MIN_HEAD_CYCLES;
+    var challengeCompleted = false;
+    var manualOverride = false;
+    var blinkCount = 0;
+    var isEyesClosed = false;
+    var timeUp = false;
+    var deadline = Date.now() + TIME_LIMIT_SEC * 1000;
+    var headPhase = 'left';
+    var headCyclesCompleted = 0;
 
-        const TIME_LIMIT_SEC = 60;
-
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const captureBtn = document.getElementById('captureBtn');
-        const fallbackBtn = document.getElementById('fallbackBtn');
-        const statusText = document.getElementById('status');
-        const blinkCountEl = document.getElementById('blinkCount');
-        const targetSpan = document.getElementById('targetSpan');
-        const headCountEl = document.getElementById('headCount');
-        const headTargetSpan = document.getElementById('headTargetSpan');
-        const timerText = document.getElementById('timerText');
-        const livenessHint = document.getElementById('livenessHint');
-        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-
-        targetSpan.textContent = targetBlinks;
-        headTargetSpan.textContent = targetHeadCycles;
-        document.getElementById('windowLabel').textContent = TIME_LIMIT_SEC;
-
-        let challengeCompleted = false;
-        let manualOverride = false;
-        let blinkCount = 0;
-        let isEyesClosed = false;
-        let timeUp = false;
-        const deadline = Date.now() + TIME_LIMIT_SEC * 1000;
-
-        /** Within one cycle: need 'left' yaw first, then 'right'. */
-        let headPhase = 'left';
-        let headCyclesCompleted = 0;
-
-        function tickTimer() {
-            const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-            timerText.textContent = 'Time left: ' + left + 's';
-            if (left <= 0 && !timeUp) {
-                timeUp = true;
-                timerText.textContent = 'Time expired';
-                timerText.style.color = '#c0392b';
-                if (!challengeCompleted) {
-                    livenessHint.textContent = 'Window ended — use demo fallback or refresh to retry.';
-                    livenessHint.style.color = '#c0392b';
-                }
+    function tickTimer() {
+        var left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        timerText.textContent = 'Time left: ' + left + 's';
+        if (left <= 0 && !timeUp) {
+            timeUp = true;
+            timerText.textContent = 'Time expired';
+            timerText.classList.add('is-expired');
+            if (!challengeCompleted) {
+                livenessHint.textContent = 'Window ended — use demo fallback or refresh to retry.';
+                livenessHint.classList.add('is-error');
             }
-            if (!timeUp) requestAnimationFrame(tickTimer);
         }
-        tickTimer();
+        if (!timeUp) requestAnimationFrame(tickTimer);
+    }
+    tickTimer();
 
-        function calculateDistance(a, b) {
-            return Math.hypot(a.x - b.x, a.y - b.y);
+    function calculateDistance(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+    function eyeEAR(upper, lower, left, right) {
+        var v = calculateDistance(upper, lower);
+        var h = calculateDistance(left, right);
+        return h > 1e-6 ? v / h : 0;
+    }
+    function headYawRatio(lm) {
+        var noseTip = lm[4];
+        var leftFaceEdge = lm[234];
+        var rightFaceEdge = lm[454];
+        var distToLeft = Math.abs(noseTip.x - leftFaceEdge.x);
+        var distToRight = Math.max(Math.abs(noseTip.x - rightFaceEdge.x), 1e-4);
+        return distToLeft / distToRight;
+    }
+
+    function updateChallengeState() {
+        var blinksDone = blinkCount === targetBlinks;
+        var headDone = headCyclesCompleted === targetHeadCycles;
+        var ok = manualOverride || (blinksDone && headDone && !timeUp);
+        challengeCompleted = ok;
+        captureBtn.disabled = !ok;
+        if (ok) {
+            livenessHint.textContent = 'Liveness OK — you can verify.';
+            livenessHint.className = 'verify-hint is-success';
+            return;
+        }
+        if (timeUp) return;
+        var msg = '';
+        if (!blinksDone) {
+            msg = 'Blink exactly ' + targetBlinks + ' time(s) (' + blinkCount + '/' + targetBlinks + '). ';
+        }
+        if (!headDone) {
+            if (blinksDone) msg = 'Blinks done. ';
+            msg += headPhase === 'left'
+                ? 'Turn your head to the LEFT (then you will be asked for RIGHT). '
+                : 'Turn your head to the RIGHT. ';
+            msg += 'Full passes: ' + headCyclesCompleted + '/' + targetHeadCycles + '.';
+        }
+        livenessHint.textContent = msg.trim();
+        livenessHint.className = 'verify-hint';
+    }
+
+    fallbackBtn.addEventListener('click', function () {
+        manualOverride = true;
+        challengeCompleted = true;
+        captureBtn.disabled = false;
+        livenessHint.textContent = 'Demo mode: challenge skipped. Server may still use Luxand if configured.';
+        livenessHint.className = 'verify-hint is-warn';
+    });
+
+    function initMediaPipe() {
+        if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
+            livenessHint.textContent = 'MediaPipe failed to load. Use demo fallback or refresh.';
+            livenessHint.classList.add('is-error');
+            return;
         }
 
-        function eyeEAR(upper, lower, left, right) {
-            const v = calculateDistance(upper, lower);
-            const h = calculateDistance(left, right);
-            return h > 1e-6 ? v / h : 0;
-        }
-
-        /** Nose vs face edges — proxy for yaw (tune if needed on your camera). */
-        function headYawRatio(lm) {
-            const noseTip = lm[4];
-            const leftFaceEdge = lm[234];
-            const rightFaceEdge = lm[454];
-            const distToLeft = Math.abs(noseTip.x - leftFaceEdge.x);
-            const distToRight = Math.max(Math.abs(noseTip.x - rightFaceEdge.x), 1e-4);
-            return distToLeft / distToRight;
-        }
-
-        function updateChallengeState() {
-            const blinksDone = blinkCount === targetBlinks;
-            const headDone = headCyclesCompleted === targetHeadCycles;
-            const ok = manualOverride || (blinksDone && headDone && !timeUp);
-            challengeCompleted = ok;
-            captureBtn.disabled = !ok;
-            if (ok) {
-                livenessHint.textContent = 'Liveness OK — you can verify.';
-                livenessHint.style.color = 'green';
-                return;
+        var faceMesh = new FaceMesh({
+            locateFile: function (file) {
+                return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + file;
             }
-            if (timeUp) return;
-            let msg = '';
-            if (!blinksDone) {
-                msg = 'Blink exactly ' + targetBlinks + ' time(s) (' + blinkCount + '/' + targetBlinks + '). ';
-            }
-            if (!headDone) {
-                if (blinksDone) msg = 'Blinks done. ';
-                msg += headPhase === 'left'
-                    ? 'Turn your head to the LEFT (then you will be asked for RIGHT). '
-                    : 'Turn your head to the RIGHT. ';
-                msg += 'Full passes: ' + headCyclesCompleted + '/' + targetHeadCycles + '.';
-            }
-            livenessHint.textContent = msg.trim();
-            livenessHint.style.color = '#333';
-        }
-
-        fallbackBtn.addEventListener('click', () => {
-            manualOverride = true;
-            challengeCompleted = true;
-            captureBtn.disabled = false;
-            livenessHint.textContent = 'Demo mode: challenge skipped. Server may still use Luxand if configured.';
-            livenessHint.style.color = '#e67e22';
+        });
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
 
-        function initMediaPipe() {
-            if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
-                livenessHint.textContent = 'MediaPipe failed to load. Use demo fallback or refresh.';
-                return;
+        var BLINK_THRESHOLD = 0.21;
+        var LOOK_LEFT_MAX = 0.55;
+        var LOOK_RIGHT_MIN = 1.75;
+
+        faceMesh.onResults(function (results) {
+            if (timeUp || challengeCompleted) return;
+            if (!results.multiFaceLandmarks || !results.multiFaceLandmarks.length) return;
+
+            var lm = results.multiFaceLandmarks[0];
+            var rEAR = eyeEAR(lm[159], lm[145], lm[33], lm[133]);
+            var lEAR = eyeEAR(lm[386], lm[374], lm[362], lm[263]);
+            var ear = (rEAR + lEAR) / 2;
+
+            if (ear < BLINK_THRESHOLD && !isEyesClosed) {
+                isEyesClosed = true;
+            } else if (ear >= BLINK_THRESHOLD && isEyesClosed) {
+                isEyesClosed = false;
+                if (blinkCount < targetBlinks) {
+                    blinkCount++;
+                    blinkCountEl.textContent = blinkCount;
+                }
             }
 
-            const faceMesh = new FaceMesh({
-                locateFile: (file) => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + file
-            });
-            faceMesh.setOptions({
-                maxNumFaces: 1,
-                refineLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-
-            const BLINK_THRESHOLD = 0.21;
-            const LOOK_LEFT_MAX = 0.55;
-            const LOOK_RIGHT_MIN = 1.75;
-
-            faceMesh.onResults((results) => {
-                if (timeUp || challengeCompleted) return;
-                if (!results.multiFaceLandmarks || !results.multiFaceLandmarks.length) return;
-
-                const lm = results.multiFaceLandmarks[0];
-
-                const rEAR = eyeEAR(lm[159], lm[145], lm[33], lm[133]);
-                const lEAR = eyeEAR(lm[386], lm[374], lm[362], lm[263]);
-                const ear = (rEAR + lEAR) / 2;
-
-                if (ear < BLINK_THRESHOLD && !isEyesClosed) {
-                    isEyesClosed = true;
-                } else if (ear >= BLINK_THRESHOLD && isEyesClosed) {
-                    isEyesClosed = false;
-                    if (blinkCount < targetBlinks) {
-                        blinkCount++;
-                        blinkCountEl.textContent = blinkCount;
+            if (headCyclesCompleted < targetHeadCycles) {
+                var turnRatio = headYawRatio(lm);
+                if (headPhase === 'left' && turnRatio < LOOK_LEFT_MAX) {
+                    headPhase = 'right';
+                } else if (headPhase === 'right' && turnRatio > LOOK_RIGHT_MIN) {
+                    headCyclesCompleted++;
+                    headCountEl.textContent = headCyclesCompleted;
+                    if (headCyclesCompleted < targetHeadCycles) {
+                        headPhase = 'left';
                     }
                 }
+            }
 
-                if (headCyclesCompleted < targetHeadCycles) {
-                    const turnRatio = headYawRatio(lm);
-                    if (headPhase === 'left' && turnRatio < LOOK_LEFT_MAX) {
-                        headPhase = 'right';
-                    } else if (headPhase === 'right' && turnRatio > LOOK_RIGHT_MIN) {
-                        headCyclesCompleted++;
-                        headCountEl.textContent = headCyclesCompleted;
-                        if (headCyclesCompleted < targetHeadCycles) {
-                            headPhase = 'left';
-                        }
-                    }
-                }
-
-                updateChallengeState();
-            });
-
-            const camera = new Camera(video, {
-                onFrame: async () => {
-                    await faceMesh.send({ image: video });
-                },
-                width: 640,
-                height: 480
-            });
-            camera.start();
-            livenessHint.textContent =
-                'Blink ' + targetBlinks + ' time(s), and complete ' + targetHeadCycles + ' left→right head turn(s). Order is free.';
             updateChallengeState();
+        });
+
+        var camera = new Camera(video, {
+            onFrame: async function () {
+                await faceMesh.send({ image: video });
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+        livenessHint.textContent =
+            'Blink ' + targetBlinks + ' time(s), and complete ' + targetHeadCycles + ' left→right head turn(s). Order is free.';
+        livenessHint.className = 'verify-hint';
+        updateChallengeState();
+    }
+
+    try {
+        initMediaPipe();
+    } catch (e) {
+        console.error(e);
+        livenessHint.textContent = 'Could not start face tracking. Use fallback or allow camera.';
+        livenessHint.classList.add('is-error');
+    }
+
+    function setStatus(text, kind) {
+        statusText.textContent = text;
+        statusText.className = 'status-banner' + (kind ? ' is-' + kind : '');
+    }
+
+    captureBtn.addEventListener('click', function () {
+        if (!challengeCompleted) {
+            setStatus('Complete blink + head challenges first (or use demo fallback).', 'error');
+            return;
         }
+        captureBtn.disabled = true;
+        setStatus('Analyzing… please wait.', 'info');
 
-        try {
-            initMediaPipe();
-        } catch (e) {
-            console.error(e);
-            livenessHint.textContent = 'Could not start face tracking. Use fallback or allow camera.';
-        }
+        var context = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        captureBtn.addEventListener('click', () => {
-            if (!challengeCompleted) {
-                statusText.innerText = 'Complete blink + head challenges first (or use demo fallback).';
-                statusText.style.color = 'red';
-                return;
-            }
-            captureBtn.disabled = true;
-            statusText.innerText = 'Analyzing… please wait.';
-            statusText.style.color = 'blue';
+        canvas.toBlob(function (blob) {
+            var formData = new FormData();
+            formData.append('photo', blob, 'capture.jpg');
+            formData.append('challenge_completed', 'true');
 
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            canvas.toBlob((blob) => {
-                const formData = new FormData();
-                formData.append('photo', blob, 'capture.jpg');
-                formData.append('challenge_completed', 'true');
-
-                fetch('{% url "process_liveness" %}', {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': csrfToken },
-                    body: formData
-                })
-                .then((r) => r.json())
-                .then((data) => {
+            fetch('{% url "process_liveness" %}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrfToken },
+                body: formData
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
                     if (data.success) {
-                        statusText.innerText = 'Success! Redirecting…';
-                        statusText.style.color = 'green';
-                        if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
-                        setTimeout(() => { window.location.href = "{% url 'dashboard' %}"; }, 800);
+                        setStatus('Success! Redirecting…', 'success');
+                        if (video.srcObject) video.srcObject.getTracks().forEach(function (t) { t.stop(); });
+                        setTimeout(function () { window.location.href = "{% url 'dashboard' %}"; }, 800);
                     } else {
-                        statusText.innerText = 'Failed: ' + data.message;
-                        statusText.style.color = 'red';
+                        setStatus('Failed: ' + (data.message || 'Unknown error'), 'error');
                         captureBtn.disabled = false;
                     }
                 })
-                .catch(() => {
-                    statusText.innerText = 'Network error. Try again.';
-                    statusText.style.color = 'red';
+                .catch(function () {
+                    setStatus('Network error. Try again.', 'error');
                     captureBtn.disabled = false;
                 });
-            }, 'image/jpeg', 0.92);
-        });
-    </script>
-</body>
-</html>
+        }, 'image/jpeg', 0.92);
+    });
+})();
+</script>
+{% endblock %}

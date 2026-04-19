@@ -1,44 +1,44 @@
 {% extends "myapp/base.html" %}
 {% block title %}Owner Verification{% endblock %}
 {% block content %}
-<div class="layout" style="grid-template-columns: 320px minmax(520px, 1fr);">
+<div class="layout layout--owner">
     <div>
         <div class="panel">
-            <h3>Boss-Only Verification</h3>
+            <h3>Boss-only verification</h3>
             <p class="muted">This page is available only for company boss accounts and runs the simulated company, GST, and ownership checks in the browser UI.</p>
-            <p class="muted">Sample data taken from `verification/data/companies_seed.json` and `verification/data/taxes_seed.json`.</p>
+            <p class="muted">Sample data taken from <code>verification/data/companies_seed.json</code> and <code>verification/data/taxes_seed.json</code>.</p>
         </div>
         <div class="panel">
-            <h3>Sample Companies</h3>
+            <h3>Sample companies</h3>
             {% for sample in samples %}
-                <div style="padding: 10px 0; border-bottom: 1px solid #eee; {% if forloop.counter0 == selected_index %}background:#f9fbff;{% endif %}">
+                <div class="sample-row {% if forloop.counter0 == selected_index %}is-active{% endif %} {% if sample.label == 'Scammer Attempt' %}sample-row--risk{% endif %}">
                     <strong>{{ sample.label }}</strong>
-                    <p class="muted" style="margin: 6px 0;">CIN: {{ sample.cin }}<br>GSTIN: {{ sample.gstin }}<br>Claimant: {{ sample.claimant_name }}</p>
-                    <a href="{% url 'owner_verification_lab' %}?sample={{ forloop.counter0 }}"><button class="btn {% if sample.label == 'Scammer Attempt' %}btn-light{% endif %}" {% if sample.label == 'Scammer Attempt' %}style="background:#ffe7e7;color:#9b1c1c;"{% endif %}>Use This Sample</button></a>
+                    <p class="muted">CIN: {{ sample.cin }}<br>GSTIN: {{ sample.gstin }}<br>Claimant: {{ sample.claimant_name }}</p>
+                    <a href="{% url 'owner_verification_lab' %}?sample={{ forloop.counter0 }}" class="btn {% if sample.label == 'Scammer Attempt' %}btn--danger{% else %}btn--secondary{% endif %}">Use this sample</a>
                 </div>
             {% endfor %}
         </div>
     </div>
     <div>
         <div class="panel">
-            <h3>Run Verification</h3>
+            <h3>Run verification</h3>
             <form method="POST">
                 {% csrf_token %}
-                <label>CIN</label>
-                <input name="cin" value="{{ form_data.cin }}" required>
-                <label>GSTIN</label>
-                <input name="gstin" value="{{ form_data.gstin }}" required>
-                <label>Company Name</label>
-                <input name="company_name" value="{{ form_data.company_name }}" required>
-                <label>Claimant Name</label>
-                <input name="claimant_name" value="{{ form_data.claimant_name }}" required>
-                <button class="btn" type="submit">Run All Checks</button>
+                <label for="ov_cin">CIN</label>
+                <input id="ov_cin" name="cin" value="{{ form_data.cin }}" required>
+                <label for="ov_gstin">GSTIN</label>
+                <input id="ov_gstin" name="gstin" value="{{ form_data.gstin }}" required>
+                <label for="ov_company">Company name</label>
+                <input id="ov_company" name="company_name" value="{{ form_data.company_name }}" required>
+                <label for="ov_claimant">Claimant name</label>
+                <input id="ov_claimant" name="claimant_name" value="{{ form_data.claimant_name }}" required>
+                <button class="btn mt-md" type="submit">Run all checks</button>
             </form>
         </div>
 
         {% if results %}
             <div class="panel">
-                <h3>Company Check</h3>
+                <h3>Company check</h3>
                 {% if results.company.success %}
                     <p><strong>{{ results.company.data.legal_name }}</strong></p>
                     <p class="muted">CIN: {{ results.company.data.cin }} · Status: {{ results.company.data.status }}</p>
@@ -49,7 +49,7 @@
             </div>
 
             <div class="panel">
-                <h3>Tax Check</h3>
+                <h3>Tax check</h3>
                 {% if results.tax.success %}
                     <p><strong>{{ results.tax.data.legal_name }}</strong></p>
                     <p class="muted">GSTIN: {{ results.tax.data.gstin }} · Status: {{ results.tax.data.status }} · Linked CIN: {{ results.tax.data.linked_cin|default:"None" }}</p>
@@ -59,13 +59,13 @@
             </div>
 
             <div class="panel">
-                <h3>Ownership Decision</h3>
+                <h3>Ownership decision</h3>
                 {% if results.ownership.success %}
                     <p><strong>{{ results.ownership.decision }}</strong> · Trust score {{ results.ownership.trust_score }}</p>
                     {% if results.ownership.decision == "Verified" %}
-                        <p class="muted">Auto-upgrade rule: `is_company_verified = True` (if not already true).</p>
+                        <p class="muted">Auto-upgrade rule: <code>is_company_verified = True</code> (if not already true).</p>
                     {% else %}
-                        <p class="muted">Auto-upgrade not triggered because decision is not `Verified`.</p>
+                        <p class="muted">Auto-upgrade not triggered because decision is not <code>Verified</code>.</p>
                     {% endif %}
                     <p class="muted">{{ results.ownership.data.explanation }}</p>
                     <p class="muted">Best name similarity: {{ results.ownership.data.name_similarity_best }}</p>

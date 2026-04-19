@@ -1,64 +1,66 @@
-{% load trust_tags %}
+{% load trust_tags static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Global Connect{% endblock %}</title>
-    <style>
-        body { margin: 0; font-family: Arial, sans-serif; background: #f3f2ef; color: #1c1e21; }
-        .topbar { background: #0a66c2; color: #fff; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center; }
-        .topbar a { color: #fff; margin-right: 14px; text-decoration: none; font-weight: 600; }
-        .layout { display: grid; grid-template-columns: 300px minmax(500px, 1fr) 300px; gap: 16px; width: min(1240px, 96%); margin: 20px auto; }
-        .panel { background: #fff; border-radius: 10px; padding: 14px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); margin-bottom: 16px; }
-        .btn { border: none; border-radius: 6px; padding: 8px 12px; background: #0a66c2; color: #fff; cursor: pointer; }
-        .btn-light { background: #eef3f8; color: #0a66c2; }
-        input, textarea, select { width: 100%; margin: 6px 0 10px; padding: 8px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; }
-        .muted { color: #667085; font-size: 13px; }
-        .trust-status { font-size: 1.1rem; line-height: 1; vertical-align: middle; margin-right: 2px; }
-        .messages { list-style: none; padding: 0; margin: 10px auto; width: min(1240px, 96%); }
-        .messages li { background: #d9f2e6; padding: 10px; border-radius: 6px; margin-bottom: 8px; }
-        @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; } }
-    </style>
+    <link rel="stylesheet" href="{% static 'myapp/app.css' %}">
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <div class="topbar">
-        <div>
-            <a href="{% url 'home' %}">Network</a>
-            {% if request.user.is_authenticated %}
-                <a href="{% url 'account_profile' %}">Profile</a>
-                <a href="{% url 'wallet' %}">Wallet{% if wallet_balance %} (₹{{ wallet_balance }}){% endif %}</a>
-            {% endif %}
-            <a href="{% url 'opportunities' %}">Opportunities</a>
-            <a href="{% url 'events' %}">Events</a>
-            <a href="{% url 'promotions' %}">Promotion</a>
-            {% if request.user.is_authenticated %}
-                {% if request.user.profile.is_verified_user %}
-                    <a href="{% url 'start_fundraiser' %}">Fundraiser</a>
-                    <a href="{% url 'organizer_hub' %}">Organizer</a>
+    <header class="site-header">
+        <div class="site-header__inner">
+            <nav class="site-nav" aria-label="Primary">
+                <a class="site-brand" href="{% url 'home' %}">Global Connect</a>
+                <span class="site-nav__sep" aria-hidden="true"></span>
+                {% if request.user.is_authenticated %}
+                    <a href="{% url 'account_profile' %}">Profile</a>
+                    <a href="{% url 'wallet' %}">Wallet{% if wallet_balance %} (₹{{ wallet_balance }}){% endif %}</a>
                 {% endif %}
-            {% endif %}
-            {% if request.user.is_authenticated and request.user.role == "company" and request.user.profile.is_boss %}
-                <a href="{% url 'owner_verification_lab' %}">Owner Verify</a>
-            {% endif %}
+                <a href="{% url 'opportunities' %}">Opportunities</a>
+                <a href="{% url 'events' %}">Events</a>
+                <a href="{% url 'promotions' %}">Promotions</a>
+                {% if request.user.is_authenticated %}
+                    {% if request.user.profile.is_verified_user %}
+                        <a href="{% url 'start_fundraiser' %}">Fundraiser</a>
+                        <a href="{% url 'organizer_hub' %}">Organizer</a>
+                    {% endif %}
+                {% endif %}
+                {% if request.user.is_authenticated and request.user.role == 'company' and request.user.profile.is_boss %}
+                    <a href="{% url 'owner_verification_lab' %}">Owner verify</a>
+                {% endif %}
+            </nav>
+            <div class="user-strip">
+                {% if request.user.is_authenticated %}
+                    <span class="trust-status" title="{% user_trust_tier_title request.user %}">{% user_trust_emoji request.user %}</span>
+                    <span>{{ request.user.username }} · Trust {{ request.user.trust_score }}</span>
+                    <a href="{% url 'logout' %}">Log out</a>
+                {% else %}
+                    <a href="{% url 'login' %}">Log in</a>
+                    <a href="{% url 'signup' %}">Sign up</a>
+                {% endif %}
+            </div>
         </div>
-        <div>
-            {% if request.user.is_authenticated %}
-                <span class="trust-status" title="{% user_trust_tier_title request.user %}">{% user_trust_emoji request.user %}</span>
-                <span>{{ request.user.username }} | Trust {{ request.user.trust_score }}</span>
-                <a href="{% url 'logout' %}" style="margin-left: 10px;">Logout</a>
-            {% else %}
-                <a href="{% url 'login' %}">Login</a>
-            {% endif %}
-        </div>
-    </div>
+    </header>
+
     {% if messages %}
-        <ul class="messages">
+        <ul class="flash-list" role="status">
             {% for message in messages %}
-                <li>{{ message }}</li>
+                <li class="flash {% if 'error' in message.tags or 'danger' in message.tags %}flash--error{% elif 'warning' in message.tags %}flash--warning{% elif 'success' in message.tags %}flash--success{% else %}flash--info{% endif %}">
+                    {{ message }}
+                </li>
             {% endfor %}
         </ul>
     {% endif %}
-    {% block content %}{% endblock %}
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        Global Connect · Professional network
+    </footer>
+    {% block extra_scripts %}{% endblock %}
 </body>
 </html>

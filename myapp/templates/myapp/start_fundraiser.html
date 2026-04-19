@@ -1,20 +1,20 @@
 {% extends "myapp/base.html" %}
 {% block title %}Start Fundraiser{% endblock %}
 {% block content %}
-<div class="layout" style="grid-template-columns: minmax(560px, 1fr);">
+<div class="layout layout--single">
     <div class="panel">
-        <h2>Start Fundraiser</h2>
+        <h2>Start fundraiser</h2>
         <p class="muted">Verified users can raise funds and host events. Everyone else keeps normal networking without uploading documents.</p>
         <p class="muted">Trust tier: <strong>{{ profile.trust_tier|capfirst }}</strong> · Verified user: {% if profile.is_verified_user %}Yes{% else %}No{% endif %}</p>
         <form method="POST">
             {% csrf_token %}
-            <label>Campaign title</label>
-            <input name="title" placeholder="e.g. Smart Logistics Expansion" required>
-            <label>Target amount (INR)</label>
-            <input name="target_amount" placeholder="e.g. 2500000" required>
-            <label>Pitch</label>
-            <textarea name="pitch" rows="5" placeholder="Why should investors trust this business and this round?" required></textarea>
-            <button class="btn" type="submit">Submit Fundraiser</button>
+            <label for="fr_title">Campaign title</label>
+            <input id="fr_title" name="title" placeholder="e.g. Smart Logistics Expansion" required>
+            <label for="fr_target">Target amount (INR)</label>
+            <input id="fr_target" name="target_amount" placeholder="e.g. 2500000" required>
+            <label for="fr_pitch">Pitch</label>
+            <textarea id="fr_pitch" name="pitch" rows="5" placeholder="Why should investors trust this business and this round?" required></textarea>
+            <button class="btn mt-md" type="submit">Submit fundraiser</button>
         </form>
     </div>
 </div>

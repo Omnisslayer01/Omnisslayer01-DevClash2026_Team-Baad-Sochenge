@@ -1,9 +1,9 @@
 {% extends "myapp/base.html" %}
 {% block title %}Event Organizer{% endblock %}
 {% block content %}
-<div class="layout" style="grid-template-columns: minmax(480px, 1fr);">
+<div class="layout layout--single">
     <div class="panel">
-        <h2>Event Organizer</h2>
+        <h2>Event organizer</h2>
         {% if organizer %}
             <p class="muted">Your organizer profile is tied to <strong>verified user</strong> status. You can host events from the Events page.</p>
             <p><strong>Display name:</strong> {{ organizer.display_name|default:request.user.username }}</p>
@@ -11,7 +11,7 @@
                 <p><strong>Public contact:</strong> {{ organizer.public_contact }}</p>
             {% endif %}
             <p class="muted">Member since {{ organizer.created_at }}</p>
-            <p><a href="{% url 'events' %}"><button class="btn" type="button">Go to Events</button></a></p>
+            <p class="mt-md"><a href="{% url 'events' %}" class="btn">Go to events</a></p>
         {% else %}
             <p class="muted">Complete an upgrade path under Profile → Upgrade to become a verified user; an organizer row is then created automatically.</p>
             <p class="muted">Verified user: {% if profile.is_verified_user %}Yes{% else %}Not yet{% endif %}</p>

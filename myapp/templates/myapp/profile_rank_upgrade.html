@@ -2,7 +2,7 @@
 {% load trust_tags %}
 {% block title %}Upgrade verification rank{% endblock %}
 {% block content %}
-<div class="layout" style="grid-template-columns: minmax(520px, 720px);">
+<div class="layout layout--narrow">
     <div class="panel">
         <h2>Upgrade verification rank</h2>
         <p class="muted">
@@ -17,59 +17,74 @@
         <form method="POST" enctype="multipart/form-data" id="upgrade_form">
             {% csrf_token %}
             <label for="claim_type">I am upgrading as</label>
-            <select name="claim_type" id="claim_type" required onchange="window.__toggleClaim(this.value)">
+            <select name="claim_type" id="claim_type" required>
                 <option value="">Select…</option>
                 <option value="employee">Employee (company email + Aadhaar / ID)</option>
                 <option value="owner">Owner (company name + CIN + GSTIN; MCA sandbox)</option>
                 <option value="organiser">Event organiser (government ID + sandbox check)</option>
             </select>
 
-            <div id="panel_employee" style="display:none; margin-top:12px;">
+            <div id="panel_employee" class="is-hidden mt-lg">
                 <h4>Employee</h4>
                 <p class="muted">We run a sandbox identity check, then email your company contact. When they approve the link, you get a green badge and verified-user access.</p>
-                <input name="emp_company_name" placeholder="Company name (legal or brand)">
-                <input type="email" name="emp_company_email" placeholder="Company HR / admin email">
-                <input name="emp_aadhar_hint" placeholder="Optional: ID last 4 digits (demo hint)">
-                <label>Aadhaar / government ID file</label>
-                <input type="file" name="emp_gov_id">
+                <label for="emp_company_name">Company name (legal or brand)</label>
+                <input id="emp_company_name" name="emp_company_name" placeholder="Company name (legal or brand)">
+                <label for="emp_company_email">Company HR / admin email</label>
+                <input id="emp_company_email" type="email" name="emp_company_email" placeholder="Company HR / admin email">
+                <label for="emp_aadhar_hint">Optional: ID last 4 digits (demo hint)</label>
+                <input id="emp_aadhar_hint" name="emp_aadhar_hint" placeholder="Optional: ID last 4 digits (demo hint)">
+                <label for="emp_gov_id">Aadhaar / government ID file</label>
+                <input id="emp_gov_id" type="file" name="emp_gov_id">
             </div>
 
-            <div id="panel_owner" style="display:none; margin-top:12px;">
+            <div id="panel_owner" class="is-hidden mt-lg">
                 <h4>Owner</h4>
                 <p class="muted">CIN and GSTIN are checked against the seeded MCA-style verification API (same logic as Owner Verification Lab).</p>
-                <input name="owner_company_name" placeholder="Company name as registered">
-                <input name="owner_cin" placeholder="CIN">
-                <input name="owner_gstin" placeholder="GSTIN">
-                <label><input type="checkbox" name="is_boss" value="1"> I am claiming company leadership (boss)</label>
-                <label>Optional: company / board documents</label>
-                <input type="file" name="company_docs">
+                <label for="owner_company_name">Company name as registered</label>
+                <input id="owner_company_name" name="owner_company_name" placeholder="Company name as registered">
+                <label for="owner_cin">CIN</label>
+                <input id="owner_cin" name="owner_cin" placeholder="CIN">
+                <label for="owner_gstin">GSTIN</label>
+                <input id="owner_gstin" name="owner_gstin" placeholder="GSTIN">
+                <label class="muted"><input type="checkbox" name="is_boss" value="1"> I am claiming company leadership (boss)</label>
+                <label for="company_docs">Optional: company / board documents</label>
+                <input id="company_docs" type="file" name="company_docs">
             </div>
 
-            <div id="panel_organiser" style="display:none; margin-top:12px;">
+            <div id="panel_organiser" class="is-hidden mt-lg">
                 <h4>Event organiser</h4>
                 <p class="muted">Upload a government ID. We call the sandbox API to reduce obviously fake submissions; admins can still review files.</p>
-                <input name="org_document_hint" placeholder="Optional: document hint for sandbox">
-                <label>Government ID file</label>
-                <input type="file" name="org_gov_id">
+                <label for="org_document_hint">Optional: document hint for sandbox</label>
+                <input id="org_document_hint" name="org_document_hint" placeholder="Optional: document hint for sandbox">
+                <label for="org_gov_id">Government ID file</label>
+                <input id="org_gov_id" type="file" name="org_gov_id">
             </div>
 
-            <button type="submit" class="btn" style="margin-top:16px;">Submit upgrade</button>
+            <button type="submit" class="btn mt-lg">Submit upgrade</button>
         </form>
-        <p class="muted" style="margin-top:16px;">
+        <p class="muted mt-lg">
             Sandbox HTTP API (for integrations): <code>POST {% url 'sandbox_verify_identity' %}</code>
             with JSON <code>{"claim_type":"employee","full_name":"…","document_hint":"1234"}</code>
             and optional header <code>X-Sandbox-Key</code> when <code>SANDBOX_API_KEY</code> is set.
         </p>
-        <p><a href="{% url 'account_profile' %}">← My profile</a></p>
+        <p class="mt-md"><a href="{% url 'account_profile' %}" class="btn btn--secondary">← My profile</a></p>
     </div>
 </div>
+{% endblock %}
+{% block extra_scripts %}
 <script>
-window.__toggleClaim = function(v) {
-  ['employee','owner','organiser'].forEach(function(k) {
-    var el = document.getElementById('panel_' + k);
-    if (el) el.style.display = (k === v) ? 'block' : 'none';
-  });
-};
-(function(){ var s = document.getElementById('claim_type'); if (s && s.value) window.__toggleClaim(s.value); })();
+(function() {
+    function toggleClaim(v) {
+        ['employee', 'owner', 'organiser'].forEach(function(k) {
+            var el = document.getElementById('panel_' + k);
+            if (!el) return;
+            el.classList.toggle('is-hidden', k !== v);
+        });
+    }
+    var sel = document.getElementById('claim_type');
+    if (!sel) return;
+    sel.addEventListener('change', function() { toggleClaim(this.value); });
+    if (sel.value) toggleClaim(sel.value);
+})();
 </script>
 {% endblock %}
